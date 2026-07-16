@@ -193,7 +193,7 @@ class HiDistanceLoss(nn.Module):
         x = features
         y = features
         x_norm = x.norm(dim=1, keepdim=True)
-        y_norm = y.norm(dim=1).T
+        y_norm = y.norm(dim=1).unsqueeze(0)
         distance_matrix = x_norm * x_norm + y_norm * y_norm - 2 * x.mm(y.T)
         distance_matrix = torch.maximum(torch.tensor(1e-10), distance_matrix)
         # logging.debug(f'distance_matrix {distance_matrix}')

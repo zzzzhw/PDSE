@@ -146,6 +146,21 @@ def main():
     """
     args = utils.parse_args()
 
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
+    if args.ids:
+        if args.encoder != 'simple-enc-mlp' or args.loss_func != 'hi-dist-xent':
+            raise ValueError('HCL+IDS requires --encoder simple-enc-mlp and --loss_func hi-dist-xent')
+        if not args.encoder_retrain:
+            raise ValueError('HCL+IDS requires --encoder_retrain for monthly model updates')
+        if not 0.0 <= args.ids_ema_decay < 1.0:
+            raise ValueError('--ids-ema-decay must be in [0, 1)')
+        if args.ids_lambda <= 0 or args.ids_batch_size < 3:
+            raise ValueError('HCL+IDS requires positive perturbation scale and batch size >= 3')
+
     start_epoch, end_epoch, step = args.lr_decay_epochs.split(',')
     args.lr_decay_epochs = list([range(int(start_epoch), int(end_epoch), int(step))])
 
@@ -205,7 +220,10 @@ def main():
     else:
         train_dataset_name = f'{args.train_start}'
 
-    SAVED_MODEL_FOLDER = f'models/{args.method}/{args.count}'
+    if args.model_dir is None:
+        SAVED_MODEL_FOLDER = f'models/{args.method}/{args.count}'
+    else:
+        SAVED_MODEL_FOLDER = args.model_dir
     # only based on malicious training samples
     NUM_FEATURES = X_train.shape[1]
     NUM_CLASSES = len(np.unique(y_train))
@@ -1085,7 +1103,8 @@ def main():
                     train_encoder_func(args, encoder, X_train_final, y_train_final, y_train_binary_final,
                                     optimizer, al_total_epochs, NEW_ENC_MODEL_PATH,
                                     weight = None,
-                                    adjust = True, warm = not args.cold_start, save_best_loss = False)
+                                    adjust = True, warm = not args.cold_start, save_best_loss = False,
+                                    ids_exposure_count = len(sample_indices))
                     e2 = time.time()
                     logging.info(f'Training Encoder model time: {(e2 - s2):.3f} seconds')
                     save_model(encoder, optimizer, args, args.mlp_epochs, NEW_ENC_MODEL_PATH)

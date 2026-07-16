@@ -15,6 +15,8 @@ from losses import HiDistanceLoss
 from samplers import ProportionalClassSampler
 from samplers import HalfSampler
 from samplers import TripletSampler
+from ids import HCLIDS
+from ids import build_exposure_loader
 from utils import AverageMeter
 from utils import save_model
 from utils import adjust_learning_rate
@@ -179,7 +181,8 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
                 weight = None, upsample = None, adjust = False, warm = False,
                 save_best_loss = False,
                 save_snapshot = False,
-                pl_pretrain = False):
+                pl_pretrain = False,
+                ids_exposure_count = 0):
     # construct the dataset loader
     # y_train is multi-class, y_train_binary is binary class
     X_train_tensor = torch.from_numpy(X_train).float()
@@ -216,6 +219,33 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
         train_loader = DataLoader(dataset=train_data, batch_size=bsize, shuffle=True)
     else:
         raise Exception(f'Sampler {args.sampler} not implemented yet.')
+
+    ids_loader = None
+    ids_controller = None
+    if getattr(args, 'ids', False) and ids_exposure_count > 0:
+        if args.loss_func != 'hi-dist-xent':
+            raise ValueError('HCL+IDS currently supports only hi-dist-xent')
+        ids_loader, ids_indices = build_exposure_loader(
+            X_train,
+            y_train,
+            y_train_binary,
+            ids_exposure_count,
+            args.ids_batch_size,
+            seed=args.seed,
+            balance_binary=not args.ids_unbalanced_exposure,
+        )
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        ids_controller = HCLIDS(encoder, args, device)
+        logging.info(
+            'HCL+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d lambda=%g gamma=%g',
+            ids_exposure_count,
+            len(ids_indices) // 3,
+            len(ids_indices),
+            len(ids_loader),
+            args.ids_lambda,
+            args.ids_gamma,
+        )
+
     best_loss = np.inf
     for epoch in range(1, total_epochs + 1):
         if adjust == True:
@@ -230,7 +260,15 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
         # train one epoch
         time1 = time.time()
         if pl_pretrain == False:
-            loss = train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch)
+            loss = train_encoder_one_epoch(
+                args,
+                encoder,
+                train_loader,
+                optimizer,
+                epoch,
+                ids_loader=ids_loader,
+                ids_controller=ids_controller,
+            )
         else:
             loss = pl_train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch)
         time2 = time.time()
@@ -249,7 +287,8 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             save_model(encoder, optimizer, args, args.epochs, save_path)
     return
 
-def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch):
+def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
+                            ids_loader=None, ids_controller=None):
     """ Train one epoch for the model """
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -259,6 +298,9 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch):
     xent_losses = AverageMeter()
     xent_multi_losses = AverageMeter()
     xent_bin_losses = AverageMeter()
+    ids_search_losses = AverageMeter()
+    ids_feature_distances = AverageMeter()
+    ids_robust_losses = AverageMeter()
     end = time.time()
 
     device = (torch.device('cuda')
@@ -266,9 +308,33 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch):
                 else torch.device('cpu'))
     encoder = encoder.to(device)
 
+    ids_active = ids_controller is not None and epoch > args.ids_warmup
+    ids_iterator = iter(ids_loader) if ids_active else None
+
     idx = 0
     for idx, (x_batch, y_batch, y_bin_batch, weight_batch) in enumerate(train_loader):
         data_time.update(time.time() - end)
+
+        if ids_iterator is not None:
+            try:
+                ids_x, ids_y, ids_y_binary = next(ids_iterator)
+            except StopIteration:
+                ids_iterator = None
+            else:
+                ids_x = ids_x.to(device)
+                ids_y = ids_y.to(device)
+                ids_y_binary = ids_y_binary.to(device)
+                search_stats = ids_controller.update(
+                    encoder, ids_x, ids_y, ids_y_binary, args
+                )
+                robust_loss = ids_controller.robust_step(
+                    encoder, optimizer, ids_x, ids_y, ids_y_binary, args
+                )
+                ids_search_losses.update(search_stats['search_hcl'], ids_x.shape[0])
+                ids_feature_distances.update(
+                    search_stats['feature_distance'], ids_x.shape[0]
+                )
+                ids_robust_losses.update(robust_loss, ids_x.shape[0])
 
         x_batch = x_batch.to(device)
         y_batch = y_batch.to(device)
@@ -371,7 +437,16 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch):
         else:
             raise Exception(f'The loss function {args.loss_func} for model ' \
                 f'{args.encoder} is not supported yet.')
-        
+
+    if ids_active:
+        logging.info(
+            'IDS: epoch %d search_hcl %.6f feature_distance %.6f robust_hcl %.6f',
+            epoch,
+            ids_search_losses.avg,
+            ids_feature_distances.avg,
+            ids_robust_losses.avg,
+        )
+
     return losses.avg
 
 def train_classifier(args, classifier, X_train, y_train, y_train_binary, 

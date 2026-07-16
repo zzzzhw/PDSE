@@ -53,6 +53,31 @@ def parse_args():
 
     p.add_argument('--count', type=int, default=None, help='Sampling count')
     p.add_argument('--result', type=str, help='file name to generate MLP performance csv result.')
+    p.add_argument('--seed', type=int, default=1, help='Random seed for reproducible experiments.')
+    p.add_argument('--model-dir', default=None,
+                   help='Optional model root override, before the training date subdirectory.')
+
+    # HCL + implicit data synthesis (IDS)
+    p.add_argument('--ids', action='store_true',
+                   help='Enable IDS only during monthly HCL retraining.')
+    p.add_argument('--ids-lambda', type=float, default=1e-3,
+                   help='Scale of the normalized encoder weight perturbation.')
+    p.add_argument('--ids-gamma', type=float, default=1.0,
+                   help='Embedding-distance constraint in the IDS search objective.')
+    p.add_argument('--ids-ema-decay', type=float, default=0.6,
+                   help='EMA decay applied to consecutive IDS weight differences.')
+    p.add_argument('--ids-proxy-lr', type=float, default=1.0,
+                   help='Learning rate for the IDS proxy encoder.')
+    p.add_argument('--ids-robust-weight', type=float, default=1.0,
+                   help='Weight of HCL loss evaluated at the perturbed encoder.')
+    p.add_argument('--ids-batch-size', type=int, default=192,
+                   help='Batch size for labeled drift exposure triplets.')
+    p.add_argument('--ids-unbalanced-exposure', action='store_true',
+                   help='Disable binary balancing within current labeled IDS exposure.')
+    p.add_argument('--ids-warmup', type=int, default=5,
+                   help='Monthly retraining epochs before IDS is activated.')
+    p.add_argument('--ids-grad-clip', type=float, default=1.0,
+                   help='Gradient clipping norm for IDS search and robust updates.')
 
     # encoder model
     p.add_argument('--encoder', default=None, \
