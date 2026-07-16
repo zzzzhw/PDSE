@@ -1,0 +1,33 @@
+# Datasets and trained model artifacts are large and reproducible.
+data/
+models/
+
+# Experiment outputs.
+*.csv
+*.log
+nohup.out
+
+# Python caches and local environments.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Model and dataset artifacts created outside the standard folders.
+*.pth
+*.pt
+*.joblib
+*.npz
+
+# Editor and operating-system files.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Temporary working files.
+tmp/
