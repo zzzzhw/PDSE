@@ -1,6 +1,6 @@
 # Datasets and trained model artifacts are large and reproducible.
-data/
-models/
+#data/
+#models/
 
 # Experiment outputs.
 *.csv
@@ -22,6 +22,7 @@ venv/
 *.pt
 *.joblib
 *.npz
+*.json
 
 # Editor and operating-system files.
 .idea/
