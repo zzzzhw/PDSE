@@ -33,7 +33,11 @@ DEFAULT_IDS = {
 SCREEN_CONFIGS = {
     'gamma_1e4': {'ids_gamma': 1e4},
     'gamma_1e5': {'ids_gamma': 1e5},
+    'lambda_1e4': {'ids_lambda': 1e-4},
+    'lambda_2e4': {'ids_lambda': 2e-4},
     'lambda_3e4': {'ids_lambda': 3e-4},
+    'lambda_5e4': {'ids_lambda': 5e-4},
+    'lambda_7e4': {'ids_lambda': 7e-4},
     'lambda_3e3': {'ids_lambda': 3e-3},
     'proxy_lr_0p1': {'ids_proxy_lr': 0.1},
     'ema_0p9': {'ids_ema_decay': 0.9},
