@@ -31,6 +31,7 @@ DEFAULT_IDS = {
 
 
 SCREEN_CONFIGS = {
+    'gamma_1e3': {'ids_gamma': 1e3},
     'gamma_1e4': {'ids_gamma': 1e4},
     'gamma_1e5': {'ids_gamma': 1e5},
     'lambda_1e4': {'ids_lambda': 1e-4},
@@ -40,7 +41,14 @@ SCREEN_CONFIGS = {
     'lambda_7e4': {'ids_lambda': 7e-4},
     'lambda_3e3': {'ids_lambda': 3e-3},
     'proxy_lr_0p1': {'ids_proxy_lr': 0.1},
+    'proxy_lr_0p5': {'ids_proxy_lr': 0.5},
+    'proxy_lr_2p0': {'ids_proxy_lr': 2.0},
+    'ema_0p0': {'ids_ema_decay': 0.0},
+    'ema_0p3': {'ids_ema_decay': 0.3},
     'ema_0p9': {'ids_ema_decay': 0.9},
+    'batch_96': {'ids_batch_size': 96},
+    'batch_384': {'ids_batch_size': 384},
+    'warmup_0': {'ids_warmup': 0},
     'warmup_20': {'ids_warmup': 20},
 }
 
