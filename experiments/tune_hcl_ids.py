@@ -50,6 +50,10 @@ SCREEN_CONFIGS = {
     'batch_384': {'ids_batch_size': 384},
     'warmup_0': {'ids_warmup': 0},
     'warmup_20': {'ids_warmup': 20},
+    'lambda_3e4_batch_384': {'ids_lambda': 3e-4, 'ids_batch_size': 384},
+    'lambda_5e4_batch_384': {'ids_lambda': 5e-4, 'ids_batch_size': 384},
+    'lambda_5e4_ema_0p0': {'ids_lambda': 5e-4, 'ids_ema_decay': 0.0},
+    'lambda_5e4_proxy_0p1': {'ids_lambda': 5e-4, 'ids_proxy_lr': 0.1},
 }
 
 
