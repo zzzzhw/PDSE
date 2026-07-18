@@ -178,6 +178,32 @@ def summarize(rows):
     }
 
 
+def pooled_summary(path):
+    with path.open(newline='', encoding='utf-8') as handle:
+        rows = [
+            row for row in csv.DictReader(handle, delimiter='\t')
+            if '2012-01' <= row['date'] <= '2012-12'
+        ]
+    if len(rows) != 12:
+        raise RuntimeError(f'Expected 12 statistic rows in {path}, found {len(rows)}')
+    tp, tn, fp, fn = (
+        sum(int(row[name]) for row in rows)
+        for name in ['TP', 'TN', 'FP', 'FN']
+    )
+    total = tp + tn + fp + fn
+    return {
+        'pooled_f1': 2 * tp / (2 * tp + fp + fn),
+        'pooled_fnr': fn / (tp + fn),
+        'pooled_fpr': fp / (tn + fp),
+        'pooled_accuracy': (tp + tn) / total,
+        'pooled_precision': tp / (tp + fp),
+        'pooled_tp': tp,
+        'pooled_tn': tn,
+        'pooled_fp': fp,
+        'pooled_fn': fn,
+    }
+
+
 def write_comparison(runtimes, checkpoints):
     baseline_path = RESULT_ROOT / 'hcl' / 'kronodroid.csv'
     ids_path = RESULT_ROOT / 'hcl_ids' / 'kronodroid.csv'
@@ -185,6 +211,8 @@ def write_comparison(runtimes, checkpoints):
     ids_rows = read_test_rows(ids_path)
     baseline = summarize(baseline_rows)
     ids = summarize(ids_rows)
+    baseline.update(pooled_summary(RESULT_ROOT / 'hcl' / 'kronodroid_stat.csv'))
+    ids.update(pooled_summary(RESULT_ROOT / 'hcl_ids' / 'kronodroid_stat.csv'))
 
     comparison_path = RESULT_ROOT / 'comparison.tsv'
     with comparison_path.open('w', newline='', encoding='utf-8') as handle:
