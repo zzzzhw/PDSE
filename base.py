@@ -602,11 +602,7 @@ def main():
     all_train_family = all_train_family_original
     init_date = np.full(X_train.shape[0], '2012')
     all_date = init_date
-    X_test_all = np.array([])
-    if args.classifier == 'res':
-        X_test_all = X_test_all.reshape(0, 1156)
-    else:
-        X_test_all = X_test_all.reshape(0, 1159)
+    X_test_all = np.empty((0, NUM_FEATURES), dtype=X_train.dtype)
     index_map = []  # 用于记录索引与原始行的映射关系
     f1_ds = [] # 存储每个月的F1-D
 
@@ -858,7 +854,9 @@ def main():
                 remaining_index_map.append(index_map[i])
 
         # 更新 X_test_all
-        X_test_all = np.array(remaining_X_test_all)  # 转换为 numpy 数组
+        X_test_all = np.asarray(remaining_X_test_all, dtype=X_train.dtype).reshape(
+            -1, NUM_FEATURES
+        )
         index_map = remaining_index_map
 
         if args.accumulate_data == True and month_loop_cnt == 0:

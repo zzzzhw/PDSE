@@ -1,6 +1,7 @@
 # Datasets and trained model artifacts are large and reproducible.
 #data/
 #models/
+data/kronodroid_raw/
 
 # Experiment outputs.
 *.csv
