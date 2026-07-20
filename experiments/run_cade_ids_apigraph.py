@@ -46,6 +46,7 @@ def paths_for(name, smoke=False):
         'result': result_dir / 'apigraph.csv',
         'log': result_dir / 'apigraph.log',
         'console': result_dir / 'console.log',
+        'runtime': result_dir / 'runtime_seconds.txt',
     }
 
 
@@ -121,6 +122,8 @@ def run_method(name, ids=False, smoke=False):
     test_end = '2013-02' if smoke else '2018-12'
     if result_complete(paths['result'], test_end):
         print(f'Skipping completed {name} run.', flush=True)
+        if paths['runtime'].exists():
+            return float(paths['runtime'].read_text(encoding='utf-8').strip())
         return 0.0
     if paths['result'].exists():
         raise RuntimeError(f'Partial result exists: {paths["result"]}')
@@ -139,6 +142,7 @@ def run_method(name, ids=False, smoke=False):
     elapsed = time.time() - started
     if not result_complete(paths['result'], test_end):
         raise RuntimeError(f'{name} completed without a result through {test_end}')
+    paths['runtime'].write_text(f'{elapsed:.6f}\n', encoding='utf-8')
     print(f'{name} completed in {elapsed:.1f} seconds.', flush=True)
     return elapsed
 
@@ -196,10 +200,38 @@ def summarize(rows):
         'aut_f1': float(np.trapz(values['F1'], dx=1)),
         'mean_fnr': float(values['FNR'].mean()),
         'variance_fnr': float(values['FNR'].var()),
+        'min_fnr': float(values['FNR'].min()),
+        'max_fnr': float(values['FNR'].max()),
         'mean_fpr': float(values['FPR'].mean()),
         'variance_fpr': float(values['FPR'].var()),
+        'min_fpr': float(values['FPR'].min()),
+        'max_fpr': float(values['FPR'].max()),
         'mean_accuracy': float(values['ACC'].mean()),
         'mean_precision': float(values['PREC'].mean()),
+    }
+
+
+def pooled_summary(result_path, expected_months):
+    stat_path = result_path.with_name(f'{result_path.stem}_stat.csv')
+    with stat_path.open(newline='', encoding='utf-8') as handle:
+        rows = [
+            row for row in csv.DictReader(handle, delimiter='\t')
+            if '2013-01' <= row['date'] <= '2018-12'
+        ]
+    if len(rows) != expected_months:
+        raise RuntimeError(
+            f'Expected {expected_months} statistic rows in {stat_path}, found {len(rows)}'
+        )
+    tp, tn, fp, fn = (
+        sum(int(row[name]) for row in rows)
+        for name in ['TP', 'TN', 'FP', 'FN']
+    )
+    return {
+        'pooled_f1': 2 * tp / (2 * tp + fp + fn),
+        'pooled_fnr': fn / (tp + fn),
+        'pooled_fpr': fp / (tn + fp),
+        'pooled_accuracy': (tp + tn) / (tp + tn + fp + fn),
+        'pooled_precision': tp / (tp + fp),
     }
 
 
@@ -210,6 +242,13 @@ def write_comparison(runtimes, checkpoints, smoke=False):
     ids_rows = read_test_rows(paths_for('cade_ids', smoke)['result'], test_end)
     baseline = summarize(baseline_rows)
     ids = summarize(ids_rows)
+    expected_months = 2 if smoke else 72
+    baseline.update(pooled_summary(
+        paths_for('cade', smoke)['result'], expected_months
+    ))
+    ids.update(pooled_summary(
+        paths_for('cade_ids', smoke)['result'], expected_months
+    ))
 
     with (output_dir / 'comparison.tsv').open('w', newline='', encoding='utf-8') as handle:
         writer = csv.writer(handle, delimiter='\t')

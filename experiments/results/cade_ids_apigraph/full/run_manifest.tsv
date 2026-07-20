@@ -1,0 +1,16 @@
+test_end	2018-12
+cade_runtime_seconds	18458.000
+cade_ids_runtime_seconds	18060.649
+initial_encoder_sha256	6fbea86f3af74ef2ce3077b49cf21adf48e3096125ff2133b1c3ef13406df08b
+initial_classifier_sha256	204bf411c162af3613ee0e51461ca02d94de1b6f80cd731fbbeedea71de8b73d
+ids_f1_wins	52
+ids_f1_losses	17
+ids_f1_ties	3
+ids_lambda	0.001
+ids_gamma	1.0
+ids_ema_decay	0.6
+ids_proxy_lr	1.0
+ids_robust_weight	1.0
+ids_batch_size	192
+ids_warmup	5
+ids_grad_clip	1.0
