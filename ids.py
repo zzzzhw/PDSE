@@ -1,4 +1,3 @@
-import copy
 from collections import OrderedDict
 
 import numpy as np
@@ -229,7 +228,8 @@ class CADEIDS:
         if not hasattr(model, 'encoder_model') or not hasattr(model, 'decoder_model'):
             raise ValueError('CADE+IDS requires a model with encoder and decoder modules')
         self.device = device
-        self.proxy = copy.deepcopy(model).to(device)
+        self.proxy = type(model)(model.enc_dims, verbose=0).to(device)
+        self.proxy.load_state_dict(model.state_dict())
         self.proxy_optimizer = torch.optim.SGD(
             self.proxy.encoder_model.parameters(), lr=args.ids_proxy_lr
         )

@@ -130,6 +130,7 @@ class IDSTest(unittest.TestCase):
 
     def test_cade_ids_search_restore_and_robust_update(self):
         model = CAE([4, 8, 3], verbose=0)
+        model(torch.from_numpy(self.X[:2]))
         loader, _ = build_exposure_loader(
             self.X,
             self.y_family,
