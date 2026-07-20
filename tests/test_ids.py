@@ -4,10 +4,12 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
+from ids import CADEIDS
 from ids import HCLIDS
 from ids import add_weight_diff
 from ids import build_exposure_indices
 from ids import build_exposure_loader
+from model import CAE
 from model import SimpleEncClassifier
 
 
@@ -26,6 +28,7 @@ class IDSTest(unittest.TestCase):
             ids_robust_weight=0.5,
             ids_grad_clip=1.0,
             xent_lambda=1.0,
+            cae_lambda=0.1,
             margin=1.0,
         )
 
@@ -57,6 +60,28 @@ class IDSTest(unittest.TestCase):
         counts = np.bincount(y_binary[current], minlength=2)
         self.assertEqual(counts[0], counts[1])
 
+    def test_exposure_loader_emits_role_major_triplets(self):
+        X = np.arange(len(self.y_family), dtype=np.float32).reshape(-1, 1)
+        loader, indices = build_exposure_loader(
+            X,
+            self.y_family,
+            self.y_binary,
+            exposure_count=3,
+            batch_size=9,
+            seed=11,
+            balance_binary=False,
+        )
+        x_batch, y_batch, y_binary_batch = next(iter(loader))
+        expected_indices = indices.reshape(-1, 3).T.reshape(-1)
+
+        np.testing.assert_array_equal(x_batch[:, 0].numpy(), expected_indices)
+        np.testing.assert_array_equal(
+            y_batch.numpy(), self.y_family[expected_indices]
+        )
+        np.testing.assert_array_equal(
+            y_binary_batch.argmax(dim=1).numpy(), self.y_binary[expected_indices]
+        )
+
     def test_ids_search_restore_and_robust_update(self):
         model = SimpleEncClassifier([4, 8, 4], [4, 4, 2], dropout=0, verbose=0)
         model(torch.from_numpy(self.X[:2]))
@@ -76,7 +101,7 @@ class IDSTest(unittest.TestCase):
 
         self.assertTrue(controller.diff)
         self.assertTrue(all(name.startswith('encoder_model.') for name in controller.diff))
-        self.assertTrue(np.isfinite(search['search_hcl']))
+        self.assertTrue(np.isfinite(search['search_loss']))
         self.assertTrue(np.isfinite(search['feature_distance']))
 
         before_perturb = {
@@ -103,6 +128,48 @@ class IDSTest(unittest.TestCase):
         )
         self.assertTrue(changed)
 
+    def test_cade_ids_search_restore_and_robust_update(self):
+        model = CAE([4, 8, 3], verbose=0)
+        loader, _ = build_exposure_loader(
+            self.X,
+            self.y_family,
+            self.y_binary,
+            exposure_count=3,
+            batch_size=9,
+            seed=11,
+            balance_binary=False,
+        )
+        x_batch, y_batch, y_binary_batch = next(iter(loader))
+        controller = CADEIDS(model, self.args, torch.device('cpu'))
+        before_search = {
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
+        }
+        search = controller.update(
+            model, x_batch, y_batch, y_binary_batch, self.args
+        )
+
+        self.assertTrue(controller.diff)
+        self.assertTrue(all(name.startswith('encoder_model.') for name in controller.diff))
+        self.assertTrue(np.isfinite(search['search_loss']))
+        self.assertTrue(np.isfinite(search['feature_distance']))
+        for name, parameter in model.named_parameters():
+            self.assertTrue(torch.equal(parameter, before_search[name]))
+
+        before_update = {
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
+        }
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        robust_loss = controller.robust_step(
+            model, optimizer, x_batch, y_batch, y_binary_batch, self.args
+        )
+        self.assertTrue(np.isfinite(robust_loss))
+        self.assertTrue(any(
+            not torch.allclose(parameter, before_update[name])
+            for name, parameter in model.named_parameters()
+        ))
+
     @unittest.skipUnless(torch.cuda.is_available(), 'CUDA integration test')
     def test_train_encoder_uses_ids_exposure(self):
         from train import train_encoder
@@ -120,6 +187,56 @@ class IDSTest(unittest.TestCase):
             margin=1.0,
             display_interval=1000,
             encoder='simple-enc-mlp',
+            ids=True,
+            ids_proxy_lr=0.1,
+            ids_ema_decay=0.6,
+            ids_lambda=1e-2,
+            ids_gamma=1.0,
+            ids_robust_weight=0.5,
+            ids_grad_clip=1.0,
+            ids_batch_size=9,
+            ids_unbalanced_exposure=False,
+            ids_warmup=0,
+            seed=11,
+            snapshot=False,
+            epochs=1,
+        )
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+        train_encoder(
+            args,
+            model,
+            self.X,
+            self.y_family,
+            self.y_binary,
+            optimizer,
+            total_epochs=1,
+            model_path='unused.pth',
+            adjust=False,
+            ids_exposure_count=3,
+        )
+        changed = any(
+            not torch.allclose(parameter.cpu(), before_update[name])
+            for name, parameter in model.named_parameters()
+        )
+        self.assertTrue(changed)
+
+    @unittest.skipUnless(torch.cuda.is_available(), 'CUDA integration test')
+    def test_train_cade_encoder_uses_ids_exposure(self):
+        from train import train_encoder
+
+        model = CAE([4, 8, 3], verbose=0)
+        before_update = {
+            name: parameter.detach().clone()
+            for name, parameter in model.named_parameters()
+        }
+        args = SimpleNamespace(
+            sampler='triplet',
+            bsize=9,
+            loss_func='triplet-mse',
+            cae_lambda=0.1,
+            margin=1.0,
+            display_interval=1000,
+            encoder='cae',
             ids=True,
             ids_proxy_lr=0.1,
             ids_ema_decay=0.6,

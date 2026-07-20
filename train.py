@@ -15,6 +15,7 @@ from losses import HiDistanceLoss
 from samplers import ProportionalClassSampler
 from samplers import HalfSampler
 from samplers import TripletSampler
+from ids import CADEIDS
 from ids import HCLIDS
 from ids import build_exposure_loader
 from utils import AverageMeter
@@ -223,8 +224,6 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
     ids_loader = None
     ids_controller = None
     if getattr(args, 'ids', False) and ids_exposure_count > 0:
-        if args.loss_func != 'hi-dist-xent':
-            raise ValueError('HCL+IDS currently supports only hi-dist-xent')
         ids_loader, ids_indices = build_exposure_loader(
             X_train,
             y_train,
@@ -235,9 +234,19 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             balance_binary=not args.ids_unbalanced_exposure,
         )
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        ids_controller = HCLIDS(encoder, args, device)
+        if args.loss_func == 'hi-dist-xent':
+            ids_method = 'HCL'
+            ids_controller = HCLIDS(encoder, args, device)
+        elif args.loss_func == 'triplet-mse':
+            ids_method = 'CADE'
+            ids_controller = CADEIDS(encoder, args, device)
+        else:
+            raise ValueError(
+                'IDS supports only hi-dist-xent (HCL) or triplet-mse (CADE)'
+            )
         logging.info(
-            'HCL+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d lambda=%g gamma=%g',
+            '%s+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d lambda=%g gamma=%g',
+            ids_method,
             ids_exposure_count,
             len(ids_indices) // 3,
             len(ids_indices),
@@ -330,7 +339,7 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 robust_loss = ids_controller.robust_step(
                     encoder, optimizer, ids_x, ids_y, ids_y_binary, args
                 )
-                ids_search_losses.update(search_stats['search_hcl'], ids_x.shape[0])
+                ids_search_losses.update(search_stats['search_loss'], ids_x.shape[0])
                 ids_feature_distances.update(
                     search_stats['feature_distance'], ids_x.shape[0]
                 )
@@ -440,7 +449,7 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
 
     if ids_active:
         logging.info(
-            'IDS: epoch %d search_hcl %.6f feature_distance %.6f robust_hcl %.6f',
+            'IDS: epoch %d search_loss %.6f feature_distance %.6f robust_loss %.6f',
             epoch,
             ids_search_losses.avg,
             ids_feature_distances.avg,

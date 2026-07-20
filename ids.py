@@ -1,3 +1,4 @@
+import copy
 from collections import OrderedDict
 
 import numpy as np
@@ -8,6 +9,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from common import to_categorical
 from losses import HiDistanceXentLoss
+from losses import TripletMSELoss
 
 
 EPS = 1e-20
@@ -94,7 +96,7 @@ def build_exposure_indices(y_family, y_binary, exposure_count, seed=0,
 
 def build_exposure_loader(X, y_family, y_binary, exposure_count, batch_size, seed=0,
                           balance_binary=True):
-    """Create HCL-compatible batches centered on the newly labeled samples."""
+    """Create role-major drift-triplet batches centered on newly labeled samples."""
     indices = build_exposure_indices(
         y_family,
         y_binary,
@@ -102,19 +104,32 @@ def build_exposure_loader(X, y_family, y_binary, exposure_count, batch_size, see
         seed=seed,
         balance_binary=balance_binary,
     )
-    batch_size = max(3, min(int(batch_size), indices.shape[0]))
-    batch_size -= batch_size % 3
-    if batch_size == 0:
-        batch_size = 3
+    triplet_indices = indices.reshape(-1, 3)
+    triplet_batch_size = max(1, min(int(batch_size) // 3, triplet_indices.shape[0]))
 
-    X_tensor = torch.from_numpy(np.asarray(X)[indices]).float()
-    y_tensor = torch.from_numpy(np.asarray(y_family)[indices]).long()
-    y_binary_tensor = torch.from_numpy(
-        to_categorical(np.asarray(y_binary)[indices], num_classes=2)
-    ).float()
+    X_tensor = torch.from_numpy(np.asarray(X)[triplet_indices]).float()
+    y_tensor = torch.from_numpy(np.asarray(y_family)[triplet_indices]).long()
+    y_binary_tensor = torch.from_numpy(to_categorical(
+        np.asarray(y_binary)[triplet_indices], num_classes=2
+    ).reshape(triplet_indices.shape[0], 3, 2)).float()
     dataset = TensorDataset(X_tensor, y_tensor, y_binary_tensor)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
+    loader = DataLoader(
+        dataset,
+        batch_size=triplet_batch_size,
+        shuffle=False,
+        drop_last=False,
+        collate_fn=_collate_role_major_triplets,
+    )
     return loader, indices
+
+
+def _collate_role_major_triplets(batch):
+    """Flatten triplets as all anchors, all positives, then all negatives."""
+    X_batch, y_batch, y_binary_batch = zip(*batch)
+    X_batch = torch.stack(X_batch).transpose(0, 1).flatten(0, 1)
+    y_batch = torch.stack(y_batch).transpose(0, 1).flatten()
+    y_binary_batch = torch.stack(y_binary_batch).transpose(0, 1).flatten(0, 1)
+    return X_batch, y_batch, y_binary_batch
 
 
 class HCLIDS:
@@ -184,12 +199,95 @@ class HCLIDS:
         new_diff = normalized_weight_diff(model, self.proxy)
         self.diff = average_weight_diff(self.diff, new_diff, self.ema_decay)
         return {
-            'search_hcl': float(hcl_loss.detach()),
+            'search_loss': float(hcl_loss.detach()),
             'feature_distance': float(feature_distance.detach()),
         }
 
     def robust_step(self, model, optimizer, x_batch, y_batch, y_binary_batch, args):
         """Train HCL at the synthesized model and then restore the perturbation."""
+        if not self.diff:
+            return 0.0
+
+        add_weight_diff(model, self.diff, self.perturb_scale)
+        try:
+            optimizer.zero_grad()
+            robust_loss, _, _, _ = self._loss(
+                model, x_batch, y_batch, y_binary_batch, args
+            )
+            (self.robust_weight * robust_loss).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
+            optimizer.step()
+        finally:
+            add_weight_diff(model, self.diff, -self.perturb_scale)
+        return float(robust_loss.detach())
+
+
+class CADEIDS:
+    """First-order IDS adaptation for CADE's triplet autoencoder."""
+
+    def __init__(self, model, args, device):
+        if not hasattr(model, 'encoder_model') or not hasattr(model, 'decoder_model'):
+            raise ValueError('CADE+IDS requires a model with encoder and decoder modules')
+        self.device = device
+        self.proxy = copy.deepcopy(model).to(device)
+        self.proxy_optimizer = torch.optim.SGD(
+            self.proxy.encoder_model.parameters(), lr=args.ids_proxy_lr
+        )
+        self.ema_decay = args.ids_ema_decay
+        self.perturb_scale = args.ids_lambda
+        self.constraint_weight = args.ids_gamma
+        self.robust_weight = args.ids_robust_weight
+        self.grad_clip = args.ids_grad_clip
+        self.diff = None
+
+    @staticmethod
+    def _loss(model, x_batch, y_batch, y_binary_batch, args):
+        del y_binary_batch
+        features, decoded = model(x_batch)
+        criterion = TripletMSELoss().to(x_batch.device)
+        loss, triplet_loss, mse_loss = criterion(
+            args.cae_lambda,
+            x_batch,
+            decoded,
+            features,
+            labels=y_batch,
+            margin=args.margin,
+        )
+        return loss, triplet_loss, mse_loss, features
+
+    def update(self, model, x_batch, y_batch, y_binary_batch, args):
+        """Search one bounded, high-CADE-loss encoder perturbation."""
+        self.proxy.load_state_dict(model.state_dict())
+        self.proxy.train()
+
+        with torch.no_grad():
+            reference_features = F.normalize(model.encode(x_batch), dim=1)
+        if self.diff:
+            add_weight_diff(self.proxy, self.diff, self.perturb_scale)
+
+        self.proxy_optimizer.zero_grad()
+        cade_loss, _, _, proxy_features = self._loss(
+            self.proxy, x_batch, y_batch, y_binary_batch, args
+        )
+        feature_distance = F.mse_loss(
+            F.normalize(proxy_features, dim=1), reference_features
+        )
+        adversary_loss = -cade_loss + self.constraint_weight * feature_distance
+        adversary_loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            self.proxy.encoder_model.parameters(), self.grad_clip
+        )
+        self.proxy_optimizer.step()
+
+        new_diff = normalized_weight_diff(model, self.proxy)
+        self.diff = average_weight_diff(self.diff, new_diff, self.ema_decay)
+        return {
+            'search_loss': float(cade_loss.detach()),
+            'feature_distance': float(feature_distance.detach()),
+        }
+
+    def robust_step(self, model, optimizer, x_batch, y_batch, y_binary_batch, args):
+        """Train CADE at the synthesized model and restore the perturbation."""
         if not self.diff:
             return 0.0
 

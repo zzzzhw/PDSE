@@ -152,14 +152,21 @@ def main():
         torch.cuda.manual_seed_all(args.seed)
 
     if args.ids:
-        if args.encoder != 'simple-enc-mlp' or args.loss_func != 'hi-dist-xent':
-            raise ValueError('HCL+IDS requires --encoder simple-enc-mlp and --loss_func hi-dist-xent')
+        ids_compatible = (
+            (args.encoder == 'simple-enc-mlp' and args.loss_func == 'hi-dist-xent')
+            or (args.encoder == 'cae' and args.loss_func == 'triplet-mse')
+        )
+        if not ids_compatible:
+            raise ValueError(
+                'IDS requires HCL (--encoder simple-enc-mlp, --loss_func hi-dist-xent) '
+                'or CADE (--encoder cae, --loss_func triplet-mse)'
+            )
         if not args.encoder_retrain:
-            raise ValueError('HCL+IDS requires --encoder_retrain for monthly model updates')
+            raise ValueError('IDS requires --encoder_retrain for monthly model updates')
         if not 0.0 <= args.ids_ema_decay < 1.0:
             raise ValueError('--ids-ema-decay must be in [0, 1)')
         if args.ids_lambda <= 0 or args.ids_batch_size < 3:
-            raise ValueError('HCL+IDS requires positive perturbation scale and batch size >= 3')
+            raise ValueError('IDS requires positive perturbation scale and batch size >= 3')
 
     start_epoch, end_epoch, step = args.lr_decay_epochs.split(',')
     args.lr_decay_epochs = list([range(int(start_epoch), int(end_epoch), int(step))])

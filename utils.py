@@ -57,9 +57,9 @@ def parse_args():
     p.add_argument('--model-dir', default=None,
                    help='Optional model root override, before the training date subdirectory.')
 
-    # HCL + implicit data synthesis (IDS)
+    # Implicit data synthesis (IDS) for monthly encoder adaptation
     p.add_argument('--ids', action='store_true',
-                   help='Enable IDS only during monthly HCL retraining.')
+                   help='Enable IDS during monthly HCL or CADE retraining.')
     p.add_argument('--ids-lambda', type=float, default=1e-3,
                    help='Scale of the normalized encoder weight perturbation.')
     p.add_argument('--ids-gamma', type=float, default=1.0,
@@ -69,7 +69,7 @@ def parse_args():
     p.add_argument('--ids-proxy-lr', type=float, default=1.0,
                    help='Learning rate for the IDS proxy encoder.')
     p.add_argument('--ids-robust-weight', type=float, default=1.0,
-                   help='Weight of HCL loss evaluated at the perturbed encoder.')
+                   help='Weight of task loss evaluated at the perturbed encoder.')
     p.add_argument('--ids-batch-size', type=int, default=192,
                    help='Batch size for labeled drift exposure triplets.')
     p.add_argument('--ids-unbalanced-exposure', action='store_true',
