@@ -1,0 +1,16 @@
+test_end	2013-02
+cade_runtime_seconds	33.500
+cade_ids_runtime_seconds	28.399
+initial_encoder_sha256	176f54e86c40c8d4f8e5b0b0adeb56a2ce43080be3889c5d1a9ca0beb0d6d754
+initial_classifier_sha256	27d408b1fc01b19f14233fff57503ffc45a27eab984b93398813ca9e4f2fd080
+ids_f1_wins	0
+ids_f1_losses	1
+ids_f1_ties	1
+ids_lambda	0.001
+ids_gamma	1.0
+ids_ema_decay	0.6
+ids_proxy_lr	1.0
+ids_robust_weight	1.0
+ids_batch_size	192
+ids_warmup	5
+ids_grad_clip	1.0
