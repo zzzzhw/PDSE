@@ -23,6 +23,9 @@ The comparison uses newly rerun CADE and CADE+IDS streams. The two methods
 start from byte-identical 2012 CAE and MLP checkpoints, use the same seed,
 sample budget, selector, and temporal data. Only IDS is changed.
 
+The standalone CADE+IDS command is tracked in
+`experiments/scripts/base_cade_ids.sh`.
+
 ## Integration
 
 The CADE OOD selector remains unchanged. For each newly labeled monthly batch,
