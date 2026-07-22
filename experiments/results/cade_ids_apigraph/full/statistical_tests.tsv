@@ -1,6 +1,0 @@
-test	statistic	p_value	ci95_lower	ci95_upper
-monthly_paired_t	5.58373737	0.0000004049	0.01038554	0.02192279
-monthly_wilcoxon	338.00000000	0.0000002007	NA	NA
-year_block_paired_t	2.70091003	0.0427375677	0.00077949	0.03152884
-year_block_wilcoxon	3.00000000	0.1562500000	NA	NA
-year_block_bootstrap_percentile	NA	NA	0.00595000	0.02607917
