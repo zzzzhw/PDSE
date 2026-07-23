@@ -70,6 +70,10 @@ def parse_args():
                    help='Learning rate for the IDS proxy encoder.')
     p.add_argument('--ids-robust-weight', type=float, default=1.0,
                    help='Weight of task loss evaluated at the perturbed encoder.')
+    p.add_argument('--ids-hcl-update-mode', choices=['combined', 'separate'],
+                   default='combined',
+                   help='Combine HCL and IDS gradients in one optimizer step, or '
+                        'use the legacy separate IDS step.')
     p.add_argument('--ids-batch-size', type=int, default=192,
                    help='Batch size for labeled drift exposure triplets.')
     p.add_argument('--ids-unbalanced-exposure', action='store_true',

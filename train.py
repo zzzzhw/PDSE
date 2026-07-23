@@ -244,8 +244,13 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             raise ValueError(
                 'IDS supports only hi-dist-xent (HCL) or triplet-mse (CADE)'
             )
+        ids_update_mode = (
+            ids_controller.update_mode if isinstance(ids_controller, HCLIDS)
+            else 'separate'
+        )
         logging.info(
-            '%s+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d lambda=%g gamma=%g',
+            '%s+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d '
+            'lambda=%g gamma=%g update=%s',
             ids_method,
             ids_exposure_count,
             len(ids_indices) // 3,
@@ -253,6 +258,7 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             len(ids_loader),
             args.ids_lambda,
             args.ids_gamma,
+            ids_update_mode,
         )
 
     best_loss = np.inf
@@ -323,6 +329,7 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
     idx = 0
     for idx, (x_batch, y_batch, y_bin_batch, weight_batch) in enumerate(train_loader):
         data_time.update(time.time() - end)
+        combined_ids_batch = None
 
         if ids_iterator is not None:
             try:
@@ -336,14 +343,18 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 search_stats = ids_controller.update(
                     encoder, ids_x, ids_y, ids_y_binary, args
                 )
-                robust_loss = ids_controller.robust_step(
-                    encoder, optimizer, ids_x, ids_y, ids_y_binary, args
-                )
                 ids_search_losses.update(search_stats['search_loss'], ids_x.shape[0])
                 ids_feature_distances.update(
                     search_stats['feature_distance'], ids_x.shape[0]
                 )
-                ids_robust_losses.update(robust_loss, ids_x.shape[0])
+                if (isinstance(ids_controller, HCLIDS)
+                        and ids_controller.update_mode == 'combined'):
+                    combined_ids_batch = (ids_x, ids_y, ids_y_binary)
+                else:
+                    robust_loss = ids_controller.robust_step(
+                        encoder, optimizer, ids_x, ids_y, ids_y_binary, args
+                    )
+                    ids_robust_losses.update(robust_loss, ids_x.shape[0])
 
         x_batch = x_batch.to(device)
         y_batch = y_batch.to(device)
@@ -415,6 +426,15 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             # SGD
             optimizer.zero_grad()
             loss.backward()
+            if combined_ids_batch is not None:
+                ids_x, ids_y, ids_y_binary = combined_ids_batch
+                robust_loss = ids_controller.accumulate_robust_grad(
+                    encoder, ids_x, ids_y, ids_y_binary, args
+                )
+                ids_robust_losses.update(robust_loss, ids_x.shape[0])
+                torch.nn.utils.clip_grad_norm_(
+                    encoder.parameters(), ids_controller.grad_clip
+                )
             optimizer.step()
             
             # measure elapsed time
