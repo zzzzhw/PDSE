@@ -23,7 +23,7 @@ TRAIN_START=2012-01
 TRAIN_END=2012-12
 TEST_START=2013-01
 TEST_END=2018-12
-RESULT_DIR=results/pseudo
+RESULT_DIR=results/hcl
 AL_OPT=adam
 
 CNT=200
@@ -36,7 +36,7 @@ TS=$(date "+%m.%d-%H.%M.%S")
 mkdir -p experiments/${RESULT_DIR}/${CNT}/${TS}
 
 nohup python -u base.py	                                \
-            --method 'pseudo'                                 \
+            --method 'hcl'                                 \
             --data ${DATA}                                  \
             --benign_zero                                   \
             --mdate 20240312                                \

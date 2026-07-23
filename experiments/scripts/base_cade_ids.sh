@@ -14,7 +14,7 @@ LR=0.001
 OPT=adam
 SCH=cosine
 DECAY=1
-E=250
+E=100
 WLR=5e-05
 WE=50
 MWLR=5e-05
@@ -27,7 +27,7 @@ TEST_END=2018-12
 RESULT_DIR=results/cade_ids
 MODEL_DATE=20230501
 
-CNT=200
+CNT=300
 D=6
 MODELDIM="512-384-256-128"
 SAMPLER=triplet
@@ -35,7 +35,7 @@ BATCH_SIZE=1536
 LOSS=triplet-mse
 TS=$(date "+%m.%d-%H.%M.%S")
 RUN_DIR=experiments/${RESULT_DIR}/${CNT}/${TS}
-MODEL_DIR=models/experiments/cade_ids/${CNT}/${TS}
+MODEL_DIR=models/cade_ids/${CNT}
 RUN_NAME=cade_ids_apigraph_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
 mkdir -p ${RUN_DIR} ${MODEL_DIR}
 

@@ -200,7 +200,7 @@ def parse_args():
                     help='Show logs about loss and other information every xxx epochs when training contrastive autoencoder.')
 
     # 设置样本选择策略
-    p.add_argument('--method', type=str, choices=['cade', 'pseudo', 'svm', 'resnet'],
+    p.add_argument('--method', type=str, choices=['cade', 'hcl', 'svm', 'resnet'],
                    help='The method to use.')
 
     # 设置F1-D的D值

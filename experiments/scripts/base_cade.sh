@@ -29,7 +29,7 @@ TEST_END=2018-12
 RESULT_DIR=results/cade
 MODEL_DATE=20230501
 
-CNT=50
+CNT=300
 D=6
 S='triplet'
 LOSS='triplet-mse'

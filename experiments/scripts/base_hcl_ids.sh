@@ -23,19 +23,19 @@ TRAIN_END=2012-12
 TEST_START=2013-01
 TEST_END=2018-12
 RESULT_DIR=results/hcl_ids
-MODEL_DIR=models/experiments/hcl_ids/200
 AL_OPT=adam
 
-CNT=200
+CNT=300
 D=6
 MODELDIM="512-384-256-128"
 SAMPLER=half
 BATCH_SIZE=1024
 LOSS=hi-dist-xent
 TS=$(date "+%m.%d-%H.%M.%S")
+MODEL_DIR=models/hcl_ids/${CNT}
 RUN_DIR=experiments/${RESULT_DIR}/${CNT}/${TS}
 RUN_NAME=gen_apigraph_hcl_ids_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
-mkdir -p ${RUN_DIR}
+mkdir -p ${RUN_DIR} ${MODEL_DIR}
 
 python -u base.py                                           \
     --method pseudo                                         \
