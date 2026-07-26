@@ -244,10 +244,7 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             raise ValueError(
                 'IDS supports only hi-dist-xent (HCL) or triplet-mse (CADE)'
             )
-        ids_update_mode = (
-            ids_controller.update_mode if isinstance(ids_controller, HCLIDS)
-            else 'separate'
-        )
+        ids_update_mode = ids_controller.update_mode
         logging.info(
             '%s+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d '
             'lambda=%g gamma=%g update=%s',
@@ -347,7 +344,7 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 ids_feature_distances.update(
                     search_stats['feature_distance'], ids_x.shape[0]
                 )
-                if (isinstance(ids_controller, HCLIDS)
+                if (isinstance(ids_controller, (HCLIDS, CADEIDS))
                         and ids_controller.update_mode == 'combined'):
                     combined_ids_batch = (ids_x, ids_y, ids_y_binary)
                 else:
@@ -384,6 +381,15 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             # SGD
             optimizer.zero_grad()
             loss.backward()
+            if combined_ids_batch is not None:
+                ids_x, ids_y, ids_y_binary = combined_ids_batch
+                robust_loss = ids_controller.accumulate_robust_grad(
+                    encoder, ids_x, ids_y, ids_y_binary, args
+                )
+                ids_robust_losses.update(robust_loss, ids_x.shape[0])
+                torch.nn.utils.clip_grad_norm_(
+                    encoder.parameters(), ids_controller.grad_clip
+                )
             optimizer.step()
             
             # measure elapsed time

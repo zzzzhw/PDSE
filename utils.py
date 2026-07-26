@@ -74,6 +74,10 @@ def parse_args():
                    default='combined',
                    help='Combine HCL and IDS gradients in one optimizer step, or '
                         'use the legacy separate IDS step.')
+    p.add_argument('--ids-cade-update-mode', choices=['combined', 'separate'],
+                   default='combined',
+                   help='Combine CADE and IDS gradients in one optimizer step, or '
+                        'use the legacy separate IDS step.')
     p.add_argument('--ids-batch-size', type=int, default=192,
                    help='Batch size for labeled drift exposure triplets.')
     p.add_argument('--ids-unbalanced-exposure', action='store_true',

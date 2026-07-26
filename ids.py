@@ -254,6 +254,7 @@ class CADEIDS:
         self.constraint_weight = args.ids_gamma
         self.robust_weight = args.ids_robust_weight
         self.grad_clip = args.ids_grad_clip
+        self.update_mode = args.ids_cade_update_mode
         self.diff = None
 
     @staticmethod
@@ -303,7 +304,7 @@ class CADEIDS:
         }
 
     def robust_step(self, model, optimizer, x_batch, y_batch, y_binary_batch, args):
-        """Train CADE at the synthesized model and restore the perturbation."""
+        """Apply the legacy standalone CADE robust optimizer step."""
         if not self.diff:
             return 0.0
 
@@ -316,6 +317,21 @@ class CADEIDS:
             (self.robust_weight * robust_loss).backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
             optimizer.step()
+        finally:
+            add_weight_diff(model, self.diff, -self.perturb_scale)
+        return float(robust_loss.detach())
+
+    def accumulate_robust_grad(self, model, x_batch, y_batch, y_binary_batch, args):
+        """Accumulate perturbed CADE gradients without updating model parameters."""
+        if not self.diff:
+            return 0.0
+
+        add_weight_diff(model, self.diff, self.perturb_scale)
+        try:
+            robust_loss, _, _, _ = self._loss(
+                model, x_batch, y_batch, y_binary_batch, args
+            )
+            (self.robust_weight * robust_loss).backward()
         finally:
             add_weight_diff(model, self.diff, -self.perturb_scale)
         return float(robust_loss.detach())

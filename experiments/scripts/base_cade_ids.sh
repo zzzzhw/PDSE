@@ -24,7 +24,7 @@ TRAIN_START=2012-01
 TRAIN_END=2012-12
 TEST_START=2013-01
 TEST_END=2018-12
-RESULT_DIR=results/cade_ids
+RESULT_DIR=results/cade_ids_combined
 MODEL_DATE=20230501
 
 CNT=300
@@ -35,8 +35,8 @@ BATCH_SIZE=1536
 LOSS=triplet-mse
 TS=$(date "+%m.%d-%H.%M.%S")
 RUN_DIR=experiments/${RESULT_DIR}/${CNT}/${TS}
-MODEL_DIR=models/cade_ids/${CNT}
-RUN_NAME=cade_ids_apigraph_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
+MODEL_DIR=models/cade_ids_combined/${CNT}
+RUN_NAME=cade_ids_combined_apigraph_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
 mkdir -p ${RUN_DIR} ${MODEL_DIR}
 
 python -u base.py                                           \
@@ -85,6 +85,7 @@ python -u base.py                                           \
     --ids-ema-decay 0.6                                     \
     --ids-proxy-lr 1.0                                      \
     --ids-robust-weight 1.0                                 \
+    --ids-cade-update-mode combined                         \
     --ids-batch-size 192                                    \
     --ids-warmup 5                                          \
     --ids-grad-clip 1.0                                     \
