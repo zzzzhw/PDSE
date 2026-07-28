@@ -168,6 +168,24 @@ def main():
         if args.ids_lambda <= 0 or args.ids_batch_size < 3:
             raise ValueError('IDS requires positive perturbation scale and batch size >= 3')
 
+    if args.hcl_enhancement != 'none':
+        if args.encoder != 'simple-enc-mlp' or args.loss_func != 'hi-dist-xent':
+            raise ValueError(
+                'HCL enhancements require --encoder simple-enc-mlp and '
+                '--loss_func hi-dist-xent'
+            )
+        if args.ids:
+            raise ValueError('HCL enhancement baselines cannot be combined with --ids')
+        if args.hcl_mixup_alpha <= 0:
+            raise ValueError('--hcl-mixup-alpha must be positive')
+        if args.hcl_focal_gamma < 0 or not 0 <= args.hcl_focal_alpha <= 1:
+            raise ValueError(
+                '--hcl-focal-gamma must be non-negative and '
+                '--hcl-focal-alpha must be in [0, 1]'
+            )
+        if args.hcl_sam_rho <= 0:
+            raise ValueError('--hcl-sam-rho must be positive')
+
     start_epoch, end_epoch, step = args.lr_decay_epochs.split(',')
     args.lr_decay_epochs = list([range(int(start_epoch), int(end_epoch), int(step))])
 

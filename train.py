@@ -18,6 +18,8 @@ from samplers import TripletSampler
 from ids import CADEIDS
 from ids import HCLIDS
 from ids import build_exposure_loader
+from hcl_enhancements import compute_hcl_training_loss
+from hcl_enhancements import sam_parameter_perturbation
 from utils import AverageMeter
 from utils import save_model
 from utils import adjust_learning_rate
@@ -411,18 +413,14 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                     mse=mse_losses))
         
         elif args.loss_func == 'hi-dist-xent':
-            _, cur_f, y_pred = encoder(x_batch)
-        
-            # features: hidden vector of shape [bsz, n_feature_dim].
-            features = cur_f
-
-            # Our own version of the supervised contrastive learning loss
-            HiDistanceXent = HiDistanceXentLoss().cuda()
-            loss, supcon_loss, xent_loss = HiDistanceXent(args.xent_lambda, \
-                                            y_pred, y_bin_batch, \
-                                            features, labels = y_batch, \
-                                            margin = args.margin, \
-                                            weight = weight_batch)
+            loss, supcon_loss, xent_loss = compute_hcl_training_loss(
+                args,
+                encoder,
+                x_batch,
+                y_batch,
+                y_bin_batch,
+                weight_batch,
+            )
             
             # update metric
             losses.update(loss.item(), bsz)
@@ -432,6 +430,18 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             # SGD
             optimizer.zero_grad()
             loss.backward()
+            if getattr(args, 'hcl_enhancement', 'none') == 'sam':
+                with sam_parameter_perturbation(encoder, args.hcl_sam_rho):
+                    optimizer.zero_grad()
+                    sam_loss, _, _ = compute_hcl_training_loss(
+                        args,
+                        encoder,
+                        x_batch,
+                        y_batch,
+                        y_bin_batch,
+                        weight_batch,
+                    )
+                    sam_loss.backward()
             if combined_ids_batch is not None:
                 ids_x, ids_y, ids_y_binary = combined_ids_batch
                 robust_loss = ids_controller.accumulate_robust_grad(

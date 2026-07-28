@@ -87,6 +87,19 @@ def parse_args():
     p.add_argument('--ids-grad-clip', type=float, default=1.0,
                    help='Gradient clipping norm for IDS search and robust updates.')
 
+    # Standard HCL training enhancements used as comparison baselines.
+    p.add_argument('--hcl-enhancement', choices=['none', 'mixup', 'focal', 'sam'],
+                   default='none',
+                   help='Optional HCL training enhancement baseline.')
+    p.add_argument('--hcl-mixup-alpha', type=float, default=0.2,
+                   help='Beta distribution alpha for HCL+Mixup.')
+    p.add_argument('--hcl-focal-gamma', type=float, default=2.0,
+                   help='Focusing exponent for HCL+Focal Loss.')
+    p.add_argument('--hcl-focal-alpha', type=float, default=0.25,
+                   help='Positive-class alpha for HCL+Focal Loss.')
+    p.add_argument('--hcl-sam-rho', type=float, default=0.05,
+                   help='Parameter-neighborhood radius for HCL+SAM.')
+
     # encoder model
     p.add_argument('--encoder', default=None, \
                     choices=['cae', 'enc', 'mlp', \
