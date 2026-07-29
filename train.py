@@ -421,6 +421,12 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 y_bin_batch,
                 weight_batch,
             )
+            if not torch.isfinite(loss):
+                raise FloatingPointError(
+                    f'Non-finite HCL loss for enhancement '
+                    f'{getattr(args, "hcl_enhancement", "none")} '
+                    f'at epoch {epoch}, batch {idx + 1}'
+                )
             
             # update metric
             losses.update(loss.item(), bsz)
@@ -441,6 +447,11 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                         y_bin_batch,
                         weight_batch,
                     )
+                    if not torch.isfinite(sam_loss):
+                        raise FloatingPointError(
+                            f'Non-finite SAM neighbor loss at epoch {epoch}, '
+                            f'batch {idx + 1}'
+                        )
                     sam_loss.backward()
             if combined_ids_batch is not None:
                 ids_x, ids_y, ids_y_binary = combined_ids_batch

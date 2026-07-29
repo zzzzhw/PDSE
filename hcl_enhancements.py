@@ -13,9 +13,14 @@ EPS = 1e-12
 def binary_focal_loss(probabilities, targets, gamma=2.0, alpha=0.25,
                       weight=None):
     """Binary focal loss for the HCL classifier's malware probability."""
-    probabilities = probabilities.clamp(min=EPS, max=1.0 - EPS)
+    dtype_epsilon = torch.finfo(probabilities.dtype).eps
+    probabilities = probabilities.clamp(
+        min=dtype_epsilon,
+        max=1.0 - dtype_epsilon,
+    )
     targets = targets.float()
     p_t = targets * probabilities + (1.0 - targets) * (1.0 - probabilities)
+    p_t = p_t.clamp(min=dtype_epsilon, max=1.0)
     alpha_t = targets * alpha + (1.0 - targets) * (1.0 - alpha)
     loss = -alpha_t * (1.0 - p_t).pow(gamma) * torch.log(p_t)
     if weight is not None:
@@ -115,6 +120,11 @@ def sam_parameter_perturbation(model, rho):
         parameter.grad.detach().norm(p=2).to(device)
         for parameter in parameters
     ]), p=2)
+    if not torch.isfinite(grad_norm):
+        raise FloatingPointError('SAM gradient norm is not finite')
+    if grad_norm <= EPS:
+        yield
+        return
     scale = rho / (grad_norm + EPS)
     perturbations = []
     with torch.no_grad():

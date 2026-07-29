@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
 
 from model import SimpleEncClassifier
+from hcl_enhancements import binary_focal_loss
 
 try:
     import pytorch_metric_learning.samplers  # noqa: F401
@@ -81,7 +82,8 @@ class HCLTrainingEnhancementTest(unittest.TestCase):
         optimizer = CountingSGD(model.parameters(), lr=0.01)
         initial = [parameter.detach().clone() for parameter in model.parameters()]
 
-        with patch.object(torch.nn.Module, 'cuda', lambda module: module):
+        with patch.object(torch.cuda, 'is_available', return_value=False), \
+                patch.object(torch.nn.Module, 'cuda', lambda module: module):
             loss = train_encoder_one_epoch(
                 args,
                 model,
@@ -102,6 +104,16 @@ class HCLTrainingEnhancementTest(unittest.TestCase):
         for enhancement in ('none', 'mixup', 'focal', 'sam'):
             with self.subTest(enhancement=enhancement):
                 self._run_one_batch(enhancement)
+
+    def test_focal_loss_is_finite_for_saturated_wrong_predictions(self):
+        probabilities = torch.tensor([1.0, 0.0], requires_grad=True)
+        targets = torch.tensor([0.0, 1.0])
+
+        loss = binary_focal_loss(probabilities, targets)
+        loss.backward()
+
+        self.assertTrue(torch.isfinite(loss))
+        self.assertTrue(torch.isfinite(probabilities.grad).all())
 
 
 if __name__ == '__main__':
