@@ -625,7 +625,8 @@ def main():
 
     ### 为保存更新数据集而做的设置 ###
     all_train_family = all_train_family_original
-    init_date = np.full(X_train.shape[0], '2012')
+    initial_train_date = args.train_end or args.train_start
+    init_date = np.full(X_train.shape[0], initial_train_date, dtype='U7')
     all_date = init_date
     X_test_all = np.empty((0, NUM_FEATURES), dtype=X_train.dtype)
     index_map = []  # 用于记录索引与原始行的映射关系
@@ -671,23 +672,27 @@ def main():
         else:
             X_test_feat = X_test
 
+        current_test_dates = np.full(X_test.shape[0], cur_month_str, dtype='U7')
         # Only month_loop_cnt == 0 will we update the accum data with new month data
         if args.accumulate_data == True and month_loop_cnt == 0:
-            if cur_month_str == '2013-01':
+            if cur_month == start:
                 X_test_accum = X_test
                 y_test_accum = y_test
                 all_test_family_accum = all_test_family
                 X_test_accum_feat = X_test_feat # for the classifier
+                test_date_accum = current_test_dates
             else:
                 X_test_accum = np.concatenate((X_test_accum, X_test), axis=0)
                 y_test_accum = np.concatenate((y_test_accum, y_test), axis=0)
                 all_test_family_accum = np.concatenate((all_test_family_accum, all_test_family), axis=0)
                 X_test_accum_feat = np.concatenate((X_test_accum_feat, X_test_feat), axis=0) # for the classifier
+                test_date_accum = np.concatenate((test_date_accum, current_test_dates), axis=0)
         elif month_loop_cnt == 0:
             X_test_accum = X_test
             y_test_accum = y_test
             all_test_family_accum = all_test_family
             X_test_accum_feat = X_test_feat # for the classifier
+            test_date_accum = current_test_dates
         
         y_test_binary_accum = np.array([1 if item != 0 else 0 for item in y_test_accum])
         
@@ -1021,6 +1026,7 @@ def main():
             logging.info(f'new_y {new_y}')
 
             all_train_family = np.concatenate((all_train_family, all_test_family_accum[sample_indices]), axis=0)
+            all_date = np.concatenate((all_date, test_date_accum[sample_indices]), axis=0)
 
             # Remove selected samples from test_valuation data
             X_test_accum = np.delete(X_test_accum, sample_indices, axis=0)
@@ -1028,6 +1034,7 @@ def main():
             y_test_accum = np.delete(y_test_accum, sample_indices, axis=0)
             all_test_family_accum = np.delete(all_test_family_accum, sample_indices, axis=0)
             y_test_pred_accum = np.delete(y_test_pred_accum, sample_indices, axis=0)
+            test_date_accum = np.delete(test_date_accum, sample_indices, axis=0)
 
             X_train_final = X_train
             y_train_final = y_train
@@ -1127,7 +1134,8 @@ def main():
                                     optimizer, al_total_epochs, NEW_ENC_MODEL_PATH,
                                     weight = None,
                                     adjust = True, warm = not args.cold_start, save_best_loss = False,
-                                    pdse_exposure_count = len(sample_indices))
+                                    pdse_exposure_count = len(sample_indices),
+                                    pdse_timestamps = all_date)
                     e2 = time.time()
                     logging.info(f'Training Encoder model time: {(e2 - s2):.3f} seconds')
                     save_model(encoder, optimizer, args, args.mlp_epochs, NEW_ENC_MODEL_PATH)

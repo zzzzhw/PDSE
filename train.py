@@ -185,7 +185,8 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
                 save_best_loss = False,
                 save_snapshot = False,
                 pl_pretrain = False,
-                pdse_exposure_count = 0):
+                pdse_exposure_count = 0,
+                pdse_timestamps = None):
     # construct the dataset loader
     # y_train is multi-class, y_train_binary is binary class
     X_train_tensor = torch.from_numpy(X_train).float()
@@ -226,14 +227,16 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
     pdse_loader = None
     pdse_controller = None
     if getattr(args, 'pdse', False) and pdse_exposure_count > 0:
+        if pdse_timestamps is None:
+            raise ValueError('PDSE requires timestamps for all training samples')
         pdse_loader, pdse_indices = build_exposure_loader(
             X_train,
             y_train,
             y_train_binary,
             pdse_exposure_count,
+            pdse_timestamps,
             args.pdse_batch_size,
             seed=args.seed,
-            balance_binary=not args.pdse_unbalanced_exposure,
         )
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if args.loss_func == 'hi-dist-xent':
@@ -248,7 +251,7 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             )
         pdse_update_mode = pdse_controller.update_mode
         logging.info(
-            '%s+PDSE exposure: selected=%d balanced_current=%d pool=%d batches=%d '
+            '%s+PDSE exposure: selected=%d triplets=%d pool=%d batches=%d '
             'lambda=%g gamma=%g update=%s',
             pdse_method,
             pdse_exposure_count,

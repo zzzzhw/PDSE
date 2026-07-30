@@ -91,7 +91,7 @@ def parse_args():
                    help='Batch size for labeled drift exposure triplets.')
     p.add_argument('--pdse-unbalanced-exposure', '--ids-unbalanced-exposure',
                    dest='pdse_unbalanced_exposure', action='store_true',
-                   help='Disable binary balancing within current labeled PDSE exposure.')
+                   help=argparse.SUPPRESS)
     p.add_argument('--pdse-warmup', '--ids-warmup', dest='pdse_warmup',
                    type=int, default=5,
                    help='Monthly retraining epochs before PDSE is activated.')

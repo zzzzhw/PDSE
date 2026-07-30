@@ -57,33 +57,41 @@ def average_weight_diff(current, new, decay):
     return current
 
 
-def build_exposure_indices(y_family, y_binary, exposure_count, seed=0,
-                           balance_binary=True):
-    """Build labeled drift triplets: current, similar history, opposite history."""
+def _month_ordinals(timestamps, sample_count):
+    """Convert sample timestamps to comparable calendar-month ordinals."""
+    timestamps = np.asarray(timestamps)
+    if timestamps.shape != (sample_count,):
+        raise ValueError('PDSE timestamps must contain one value per training sample')
+    try:
+        months = timestamps.astype('datetime64[M]')
+    except (TypeError, ValueError) as error:
+        raise ValueError('PDSE timestamps must be valid date-like values') from error
+    if np.isnat(months).any():
+        raise ValueError('PDSE timestamps cannot contain missing dates')
+    return months.astype(np.int64)
+
+
+def _nearest_timestamp_candidates(candidates, current_index, month_ordinals):
+    distances = np.abs(month_ordinals[candidates] - month_ordinals[current_index])
+    return candidates[distances == distances.min()]
+
+
+def build_exposure_indices(y_family, y_binary, exposure_count, timestamps, seed=0):
+    """Build one time-local drift triplet for every newly labeled sample."""
     y_family = np.asarray(y_family)
     y_binary = np.asarray(y_binary)
     sample_count = y_family.shape[0]
+    if y_binary.shape != (sample_count,):
+        raise ValueError('PDSE binary labels must align with family labels')
     if exposure_count <= 0 or exposure_count >= sample_count:
         raise ValueError('exposure_count must identify a non-empty tail of the training set')
+    month_ordinals = _month_ordinals(timestamps, sample_count)
 
     history_end = sample_count - exposure_count
     history_indices = np.arange(history_end)
     current_indices = np.arange(history_end, sample_count)
     rng = np.random.default_rng(seed)
     triplets = []
-
-    if balance_binary:
-        current_by_binary = [
-            current_indices[y_binary[current_indices] == label]
-            for label in np.unique(y_binary[current_indices])
-        ]
-        if len(current_by_binary) == 2 and all(group.size > 0 for group in current_by_binary):
-            per_class = min(group.size for group in current_by_binary)
-            current_indices = np.concatenate([
-                rng.choice(group, size=per_class, replace=False)
-                for group in current_by_binary
-            ])
-            rng.shuffle(current_indices)
 
     for current_index in current_indices:
         same_candidates = history_indices[y_family[:history_end] == y_family[current_index]]
@@ -93,23 +101,29 @@ def build_exposure_indices(y_family, y_binary, exposure_count, seed=0,
         if same_candidates.size == 0 or opposite_candidates.size == 0:
             raise ValueError('PDSE exposure construction requires both benign and malicious history')
 
-        same_index = int(rng.choice(same_candidates))
-        opposite_index = int(rng.choice(opposite_candidates))
+        nearest_same = _nearest_timestamp_candidates(
+            same_candidates, current_index, month_ordinals
+        )
+        nearest_opposite = _nearest_timestamp_candidates(
+            opposite_candidates, current_index, month_ordinals
+        )
+        same_index = int(rng.choice(nearest_same))
+        opposite_index = int(rng.choice(nearest_opposite))
         triplets.append((int(current_index), same_index, opposite_index))
 
     rng.shuffle(triplets)
     return np.asarray(triplets, dtype=np.int64).reshape(-1)
 
 
-def build_exposure_loader(X, y_family, y_binary, exposure_count, batch_size, seed=0,
-                          balance_binary=True):
+def build_exposure_loader(X, y_family, y_binary, exposure_count, timestamps,
+                          batch_size, seed=0):
     """Create role-major drift-triplet batches centered on newly labeled samples."""
     indices = build_exposure_indices(
         y_family,
         y_binary,
         exposure_count,
+        timestamps,
         seed=seed,
-        balance_binary=balance_binary,
     )
     triplet_indices = indices.reshape(-1, 3)
     triplet_batch_size = max(1, min(int(batch_size) // 3, triplet_indices.shape[0]))
