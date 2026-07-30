@@ -57,35 +57,47 @@ def parse_args():
     p.add_argument('--model-dir', default=None,
                    help='Optional model root override, before the training date subdirectory.')
 
-    # Implicit data synthesis (IDS) for monthly encoder adaptation
-    p.add_argument('--ids', action='store_true',
-                   help='Enable IDS during monthly HCL or CADE retraining.')
-    p.add_argument('--ids-lambda', type=float, default=1e-3,
+    # PDSE for monthly encoder adaptation. The IDS flags remain CLI aliases so
+    # that previously recorded experiment commands stay reproducible.
+    p.add_argument('--pdse', '--ids', dest='pdse', action='store_true',
+                   help='Enable PDSE during monthly HCL or CADE retraining.')
+    p.add_argument('--pdse-lambda', '--ids-lambda', dest='pdse_lambda',
+                   type=float, default=1e-3,
                    help='Scale of the normalized encoder weight perturbation.')
-    p.add_argument('--ids-gamma', type=float, default=1.0,
-                   help='Embedding-distance constraint in the IDS search objective.')
-    p.add_argument('--ids-ema-decay', type=float, default=0.6,
-                   help='EMA decay applied to consecutive IDS weight differences.')
-    p.add_argument('--ids-proxy-lr', type=float, default=1.0,
-                   help='Learning rate for the IDS proxy encoder.')
-    p.add_argument('--ids-robust-weight', type=float, default=1.0,
+    p.add_argument('--pdse-gamma', '--ids-gamma', dest='pdse_gamma',
+                   type=float, default=1.0,
+                   help='Embedding-distance constraint in the PDSE search objective.')
+    p.add_argument('--pdse-ema-decay', '--ids-ema-decay', dest='pdse_ema_decay',
+                   type=float, default=0.6,
+                   help='EMA decay applied to consecutive PDSE weight differences.')
+    p.add_argument('--pdse-proxy-lr', '--ids-proxy-lr', dest='pdse_proxy_lr',
+                   type=float, default=1.0,
+                   help='Learning rate for the PDSE proxy encoder.')
+    p.add_argument('--pdse-robust-weight', '--ids-robust-weight',
+                   dest='pdse_robust_weight', type=float, default=1.0,
                    help='Weight of task loss evaluated at the perturbed encoder.')
-    p.add_argument('--ids-hcl-update-mode', choices=['combined', 'separate'],
+    p.add_argument('--pdse-hcl-update-mode', '--ids-hcl-update-mode',
+                   dest='pdse_hcl_update_mode', choices=['combined', 'separate'],
                    default='combined',
-                   help='Combine HCL and IDS gradients in one optimizer step, or '
-                        'use the legacy separate IDS step.')
-    p.add_argument('--ids-cade-update-mode', choices=['combined', 'separate'],
+                   help='Combine HCL and PDSE gradients in one optimizer step, or '
+                        'use the legacy separate PDSE step.')
+    p.add_argument('--pdse-cade-update-mode', '--ids-cade-update-mode',
+                   dest='pdse_cade_update_mode', choices=['combined', 'separate'],
                    default='combined',
-                   help='Combine CADE and IDS gradients in one optimizer step, or '
-                        'use the legacy separate IDS step.')
-    p.add_argument('--ids-batch-size', type=int, default=192,
+                   help='Combine CADE and PDSE gradients in one optimizer step, or '
+                        'use the legacy separate PDSE step.')
+    p.add_argument('--pdse-batch-size', '--ids-batch-size', dest='pdse_batch_size',
+                   type=int, default=192,
                    help='Batch size for labeled drift exposure triplets.')
-    p.add_argument('--ids-unbalanced-exposure', action='store_true',
-                   help='Disable binary balancing within current labeled IDS exposure.')
-    p.add_argument('--ids-warmup', type=int, default=5,
-                   help='Monthly retraining epochs before IDS is activated.')
-    p.add_argument('--ids-grad-clip', type=float, default=1.0,
-                   help='Gradient clipping norm for IDS search and robust updates.')
+    p.add_argument('--pdse-unbalanced-exposure', '--ids-unbalanced-exposure',
+                   dest='pdse_unbalanced_exposure', action='store_true',
+                   help='Disable binary balancing within current labeled PDSE exposure.')
+    p.add_argument('--pdse-warmup', '--ids-warmup', dest='pdse_warmup',
+                   type=int, default=5,
+                   help='Monthly retraining epochs before PDSE is activated.')
+    p.add_argument('--pdse-grad-clip', '--ids-grad-clip', dest='pdse_grad_clip',
+                   type=float, default=1.0,
+                   help='Gradient clipping norm for PDSE search and robust updates.')
 
     # Standard HCL training enhancements used as comparison baselines.
     p.add_argument('--hcl-enhancement', choices=['none', 'mixup', 'focal', 'sam'],

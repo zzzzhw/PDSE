@@ -1,15 +1,15 @@
-import sys
-import types
 import unittest
 from argparse import Namespace
 from collections import OrderedDict
+import sys
+import types
 from unittest.mock import patch
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from ids import CADEIDS
-from model import CAE
+from pdse import HCLPDSE
+from model import SimpleEncClassifier
 
 try:
     import pytorch_metric_learning.samplers  # noqa: F401
@@ -29,7 +29,7 @@ except ModuleNotFoundError:
 from train import train_encoder_one_epoch
 
 
-class CountingAdam(torch.optim.Adam):
+class CountingSGD(torch.optim.SGD):
     def __init__(self, params, **kwargs):
         super().__init__(params, **kwargs)
         self.step_count = 0
@@ -39,25 +39,25 @@ class CountingAdam(torch.optim.Adam):
         return super().step(closure)
 
 
-class CADEIDSCombinedTest(unittest.TestCase):
+class HCLPDSECombinedTest(unittest.TestCase):
     def setUp(self):
-        torch.manual_seed(11)
+        torch.manual_seed(7)
         self.args = Namespace(
-            ids_proxy_lr=0.1,
-            ids_ema_decay=0.0,
-            ids_lambda=0.01,
-            ids_gamma=1.0,
-            ids_robust_weight=0.5,
-            ids_grad_clip=10.0,
-            ids_cade_update_mode='combined',
-            ids_warmup=0,
-            cae_lambda=0.1,
+            pdse_proxy_lr=0.1,
+            pdse_ema_decay=0.0,
+            pdse_lambda=0.01,
+            pdse_gamma=1.0,
+            pdse_robust_weight=0.5,
+            pdse_grad_clip=10.0,
+            pdse_hcl_update_mode='combined',
+            xent_lambda=1.0,
             margin=1.0,
-            loss_func='triplet-mse',
+            pdse_warmup=0,
+            loss_func='hi-dist-xent',
             display_interval=100,
         )
-        self.model = CAE([4, 3], verbose=0)
-        self.controller = CADEIDS(self.model, self.args, torch.device('cpu'))
+        self.model = SimpleEncClassifier([4, 3], [3, 2], dropout=0.0, verbose=0)
+        self.controller = HCLPDSE(self.model, self.args, torch.device('cpu'))
         self.controller.diff = OrderedDict(
             (name, torch.full_like(parameter, 0.25))
             for name, parameter in self.model.named_parameters()
@@ -65,24 +65,20 @@ class CADEIDSCombinedTest(unittest.TestCase):
         )
         self.x = torch.tensor([
             [1.0, 0.0, 0.5, 0.0],
+            [0.8, 0.1, 0.4, 0.2],
             [0.0, 1.0, 0.0, 0.5],
-            [0.9, 0.1, 0.4, 0.0],
-            [0.1, 0.9, 0.0, 0.4],
-            [0.0, 1.0, 0.0, 0.5],
-            [1.0, 0.0, 0.5, 0.0],
+            [0.1, 0.9, 0.2, 0.4],
         ])
-        self.y = torch.tensor([0, 1, 0, 1, 1, 0])
+        self.y = torch.tensor([0, 0, 1, 1])
         self.y_binary = torch.tensor([
             [1.0, 0.0],
-            [0.0, 1.0],
             [1.0, 0.0],
             [0.0, 1.0],
             [0.0, 1.0],
-            [1.0, 0.0],
         ])
 
     def test_combined_update_restores_perturbation_and_steps_once(self):
-        optimizer = CountingAdam(self.model.parameters(), lr=0.001)
+        optimizer = CountingSGD(self.model.parameters(), lr=0.01)
         initial = {
             name: parameter.detach().clone()
             for name, parameter in self.model.named_parameters()
@@ -126,8 +122,8 @@ class CADEIDSCombinedTest(unittest.TestCase):
             torch.ones(self.x.shape[0]),
         )
         train_loader = DataLoader(dataset, batch_size=self.x.shape[0])
-        ids_loader = [(self.x, self.y, self.y_binary)]
-        optimizer = CountingAdam(self.model.parameters(), lr=0.001)
+        pdse_loader = [(self.x, self.y, self.y_binary)]
+        optimizer = CountingSGD(self.model.parameters(), lr=0.01)
 
         with patch.object(torch.nn.Module, 'cuda', lambda module: module):
             loss = train_encoder_one_epoch(
@@ -136,8 +132,8 @@ class CADEIDSCombinedTest(unittest.TestCase):
                 train_loader,
                 optimizer,
                 epoch=1,
-                ids_loader=ids_loader,
-                ids_controller=self.controller,
+                pdse_loader=pdse_loader,
+                pdse_controller=self.controller,
             )
 
         self.assertGreater(loss, 0.0)

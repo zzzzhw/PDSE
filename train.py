@@ -15,9 +15,9 @@ from losses import HiDistanceLoss
 from samplers import ProportionalClassSampler
 from samplers import HalfSampler
 from samplers import TripletSampler
-from ids import CADEIDS
-from ids import HCLIDS
-from ids import build_exposure_loader
+from pdse import CADEPDSE
+from pdse import HCLPDSE
+from pdse import build_exposure_loader
 from hcl_enhancements import compute_hcl_training_loss
 from hcl_enhancements import sam_parameter_perturbation
 from utils import AverageMeter
@@ -185,7 +185,7 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
                 save_best_loss = False,
                 save_snapshot = False,
                 pl_pretrain = False,
-                ids_exposure_count = 0):
+                pdse_exposure_count = 0):
     # construct the dataset loader
     # y_train is multi-class, y_train_binary is binary class
     X_train_tensor = torch.from_numpy(X_train).float()
@@ -223,41 +223,41 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
     else:
         raise Exception(f'Sampler {args.sampler} not implemented yet.')
 
-    ids_loader = None
-    ids_controller = None
-    if getattr(args, 'ids', False) and ids_exposure_count > 0:
-        ids_loader, ids_indices = build_exposure_loader(
+    pdse_loader = None
+    pdse_controller = None
+    if getattr(args, 'pdse', False) and pdse_exposure_count > 0:
+        pdse_loader, pdse_indices = build_exposure_loader(
             X_train,
             y_train,
             y_train_binary,
-            ids_exposure_count,
-            args.ids_batch_size,
+            pdse_exposure_count,
+            args.pdse_batch_size,
             seed=args.seed,
-            balance_binary=not args.ids_unbalanced_exposure,
+            balance_binary=not args.pdse_unbalanced_exposure,
         )
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if args.loss_func == 'hi-dist-xent':
-            ids_method = 'HCL'
-            ids_controller = HCLIDS(encoder, args, device)
+            pdse_method = 'HCL'
+            pdse_controller = HCLPDSE(encoder, args, device)
         elif args.loss_func == 'triplet-mse':
-            ids_method = 'CADE'
-            ids_controller = CADEIDS(encoder, args, device)
+            pdse_method = 'CADE'
+            pdse_controller = CADEPDSE(encoder, args, device)
         else:
             raise ValueError(
-                'IDS supports only hi-dist-xent (HCL) or triplet-mse (CADE)'
+                'PDSE supports only hi-dist-xent (HCL) or triplet-mse (CADE)'
             )
-        ids_update_mode = ids_controller.update_mode
+        pdse_update_mode = pdse_controller.update_mode
         logging.info(
-            '%s+IDS exposure: selected=%d balanced_current=%d pool=%d batches=%d '
+            '%s+PDSE exposure: selected=%d balanced_current=%d pool=%d batches=%d '
             'lambda=%g gamma=%g update=%s',
-            ids_method,
-            ids_exposure_count,
-            len(ids_indices) // 3,
-            len(ids_indices),
-            len(ids_loader),
-            args.ids_lambda,
-            args.ids_gamma,
-            ids_update_mode,
+            pdse_method,
+            pdse_exposure_count,
+            len(pdse_indices) // 3,
+            len(pdse_indices),
+            len(pdse_loader),
+            args.pdse_lambda,
+            args.pdse_gamma,
+            pdse_update_mode,
         )
 
     best_loss = np.inf
@@ -280,8 +280,8 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
                 train_loader,
                 optimizer,
                 epoch,
-                ids_loader=ids_loader,
-                ids_controller=ids_controller,
+                pdse_loader=pdse_loader,
+                pdse_controller=pdse_controller,
             )
         else:
             loss = pl_train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch)
@@ -302,7 +302,7 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
     return
 
 def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
-                            ids_loader=None, ids_controller=None):
+                            pdse_loader=None, pdse_controller=None):
     """ Train one epoch for the model """
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -312,9 +312,9 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
     xent_losses = AverageMeter()
     xent_multi_losses = AverageMeter()
     xent_bin_losses = AverageMeter()
-    ids_search_losses = AverageMeter()
-    ids_feature_distances = AverageMeter()
-    ids_robust_losses = AverageMeter()
+    pdse_search_losses = AverageMeter()
+    pdse_feature_distances = AverageMeter()
+    pdse_robust_losses = AverageMeter()
     end = time.time()
 
     device = (torch.device('cuda')
@@ -322,38 +322,38 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 else torch.device('cpu'))
     encoder = encoder.to(device)
 
-    ids_active = ids_controller is not None and epoch > args.ids_warmup
-    ids_iterator = iter(ids_loader) if ids_active else None
+    pdse_active = pdse_controller is not None and epoch > args.pdse_warmup
+    pdse_iterator = iter(pdse_loader) if pdse_active else None
 
     idx = 0
     for idx, (x_batch, y_batch, y_bin_batch, weight_batch) in enumerate(train_loader):
         data_time.update(time.time() - end)
-        combined_ids_batch = None
+        combined_pdse_batch = None
 
-        if ids_iterator is not None:
+        if pdse_iterator is not None:
             try:
-                ids_x, ids_y, ids_y_binary = next(ids_iterator)
+                pdse_x, pdse_y, pdse_y_binary = next(pdse_iterator)
             except StopIteration:
-                ids_iterator = None
+                pdse_iterator = None
             else:
-                ids_x = ids_x.to(device)
-                ids_y = ids_y.to(device)
-                ids_y_binary = ids_y_binary.to(device)
-                search_stats = ids_controller.update(
-                    encoder, ids_x, ids_y, ids_y_binary, args
+                pdse_x = pdse_x.to(device)
+                pdse_y = pdse_y.to(device)
+                pdse_y_binary = pdse_y_binary.to(device)
+                search_stats = pdse_controller.update(
+                    encoder, pdse_x, pdse_y, pdse_y_binary, args
                 )
-                ids_search_losses.update(search_stats['search_loss'], ids_x.shape[0])
-                ids_feature_distances.update(
-                    search_stats['feature_distance'], ids_x.shape[0]
+                pdse_search_losses.update(search_stats['search_loss'], pdse_x.shape[0])
+                pdse_feature_distances.update(
+                    search_stats['feature_distance'], pdse_x.shape[0]
                 )
-                if (isinstance(ids_controller, (HCLIDS, CADEIDS))
-                        and ids_controller.update_mode == 'combined'):
-                    combined_ids_batch = (ids_x, ids_y, ids_y_binary)
+                if (isinstance(pdse_controller, (HCLPDSE, CADEPDSE))
+                        and pdse_controller.update_mode == 'combined'):
+                    combined_pdse_batch = (pdse_x, pdse_y, pdse_y_binary)
                 else:
-                    robust_loss = ids_controller.robust_step(
-                        encoder, optimizer, ids_x, ids_y, ids_y_binary, args
+                    robust_loss = pdse_controller.robust_step(
+                        encoder, optimizer, pdse_x, pdse_y, pdse_y_binary, args
                     )
-                    ids_robust_losses.update(robust_loss, ids_x.shape[0])
+                    pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
 
         x_batch = x_batch.to(device)
         y_batch = y_batch.to(device)
@@ -383,14 +383,14 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             # SGD
             optimizer.zero_grad()
             loss.backward()
-            if combined_ids_batch is not None:
-                ids_x, ids_y, ids_y_binary = combined_ids_batch
-                robust_loss = ids_controller.accumulate_robust_grad(
-                    encoder, ids_x, ids_y, ids_y_binary, args
+            if combined_pdse_batch is not None:
+                pdse_x, pdse_y, pdse_y_binary = combined_pdse_batch
+                robust_loss = pdse_controller.accumulate_robust_grad(
+                    encoder, pdse_x, pdse_y, pdse_y_binary, args
                 )
-                ids_robust_losses.update(robust_loss, ids_x.shape[0])
+                pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
                 torch.nn.utils.clip_grad_norm_(
-                    encoder.parameters(), ids_controller.grad_clip
+                    encoder.parameters(), pdse_controller.grad_clip
                 )
             optimizer.step()
             
@@ -453,14 +453,14 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                             f'batch {idx + 1}'
                         )
                     sam_loss.backward()
-            if combined_ids_batch is not None:
-                ids_x, ids_y, ids_y_binary = combined_ids_batch
-                robust_loss = ids_controller.accumulate_robust_grad(
-                    encoder, ids_x, ids_y, ids_y_binary, args
+            if combined_pdse_batch is not None:
+                pdse_x, pdse_y, pdse_y_binary = combined_pdse_batch
+                robust_loss = pdse_controller.accumulate_robust_grad(
+                    encoder, pdse_x, pdse_y, pdse_y_binary, args
                 )
-                ids_robust_losses.update(robust_loss, ids_x.shape[0])
+                pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
                 torch.nn.utils.clip_grad_norm_(
-                    encoder.parameters(), ids_controller.grad_clip
+                    encoder.parameters(), pdse_controller.grad_clip
                 )
             optimizer.step()
             
@@ -494,13 +494,13 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             raise Exception(f'The loss function {args.loss_func} for model ' \
                 f'{args.encoder} is not supported yet.')
 
-    if ids_active:
+    if pdse_active:
         logging.info(
-            'IDS: epoch %d search_loss %.6f feature_distance %.6f robust_loss %.6f',
+            'PDSE: epoch %d search_loss %.6f feature_distance %.6f robust_loss %.6f',
             epoch,
-            ids_search_losses.avg,
-            ids_feature_distances.avg,
-            ids_robust_losses.avg,
+            pdse_search_losses.avg,
+            pdse_feature_distances.avg,
+            pdse_robust_losses.avg,
         )
 
     return losses.avg

@@ -151,22 +151,22 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    if args.ids:
-        ids_compatible = (
+    if args.pdse:
+        pdse_compatible = (
             (args.encoder == 'simple-enc-mlp' and args.loss_func == 'hi-dist-xent')
             or (args.encoder == 'cae' and args.loss_func == 'triplet-mse')
         )
-        if not ids_compatible:
+        if not pdse_compatible:
             raise ValueError(
-                'IDS requires HCL (--encoder simple-enc-mlp, --loss_func hi-dist-xent) '
+                'PDSE requires HCL (--encoder simple-enc-mlp, --loss_func hi-dist-xent) '
                 'or CADE (--encoder cae, --loss_func triplet-mse)'
             )
         if not args.encoder_retrain:
-            raise ValueError('IDS requires --encoder_retrain for monthly model updates')
-        if not 0.0 <= args.ids_ema_decay < 1.0:
-            raise ValueError('--ids-ema-decay must be in [0, 1)')
-        if args.ids_lambda <= 0 or args.ids_batch_size < 3:
-            raise ValueError('IDS requires positive perturbation scale and batch size >= 3')
+            raise ValueError('PDSE requires --encoder_retrain for monthly model updates')
+        if not 0.0 <= args.pdse_ema_decay < 1.0:
+            raise ValueError('--pdse-ema-decay must be in [0, 1)')
+        if args.pdse_lambda <= 0 or args.pdse_batch_size < 3:
+            raise ValueError('PDSE requires positive perturbation scale and batch size >= 3')
 
     if args.hcl_enhancement != 'none':
         if args.encoder != 'simple-enc-mlp' or args.loss_func != 'hi-dist-xent':
@@ -174,8 +174,8 @@ def main():
                 'HCL enhancements require --encoder simple-enc-mlp and '
                 '--loss_func hi-dist-xent'
             )
-        if args.ids:
-            raise ValueError('HCL enhancement baselines cannot be combined with --ids')
+        if args.pdse:
+            raise ValueError('HCL enhancement baselines cannot be combined with --pdse')
         if args.hcl_mixup_alpha <= 0:
             raise ValueError('--hcl-mixup-alpha must be positive')
         if args.hcl_focal_gamma < 0 or not 0 <= args.hcl_focal_alpha <= 1:
@@ -1127,7 +1127,7 @@ def main():
                                     optimizer, al_total_epochs, NEW_ENC_MODEL_PATH,
                                     weight = None,
                                     adjust = True, warm = not args.cold_start, save_best_loss = False,
-                                    ids_exposure_count = len(sample_indices))
+                                    pdse_exposure_count = len(sample_indices))
                     e2 = time.time()
                     logging.info(f'Training Encoder model time: {(e2 - s2):.3f} seconds')
                     save_model(encoder, optimizer, args, args.mlp_epochs, NEW_ENC_MODEL_PATH)

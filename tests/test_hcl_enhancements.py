@@ -76,7 +76,7 @@ class HCLTrainingEnhancementTest(unittest.TestCase):
             margin=1.0,
             loss_func='hi-dist-xent',
             display_interval=100,
-            ids_warmup=0,
+            pdse_warmup=0,
         )
         model = SimpleEncClassifier([4, 3], [3, 2], dropout=0.0, verbose=0)
         optimizer = CountingSGD(model.parameters(), lr=0.01)
