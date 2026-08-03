@@ -70,7 +70,7 @@ def _write_month(path, features, labels, indices, column_names, sha256,
             temporary,
             data=combined,
             column_names=column_names,
-            sha256=np.asarray(sha256[indices], dtype=str),
+            sha256=np.asarray(sha256[indices], dtype="U64"),
             last_analysis_time=timestamps[indices],
         )
         os.replace(temporary, path)
@@ -78,6 +78,64 @@ def _write_month(path, features, labels, indices, column_names, sha256,
         if temporary.exists():
             temporary.unlink()
     return combined[:, -1].copy()
+
+
+def _write_empty_month(path, column_names):
+    """Write an empty split with the same schema as a populated month."""
+    temporary = path.with_suffix(".tmp.npz")
+    try:
+        np.savez_compressed(
+            temporary,
+            data=np.empty((0, column_names.size), dtype=np.int8),
+            column_names=column_names,
+            sha256=np.empty(0, dtype="U64"),
+            last_analysis_time=np.empty(0, dtype="datetime64[s]"),
+        )
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def backfill_empty_months(output_dir, force=False):
+    """Add empty files for calendar months omitted by an older preparation run."""
+    output_dir = Path(output_dir)
+    manifest_path = output_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    missing_months = manifest.get("missing_months", [])
+    populated_files = sorted(output_dir.glob("????-??_selected.npz"))
+    if not populated_files:
+        raise FileNotFoundError(f"No populated monthly NPZ found in {output_dir}")
+    with np.load(populated_files[0], allow_pickle=False) as split:
+        column_names = split["column_names"]
+
+    for summary in manifest["splits"].values():
+        summary.setdefault("empty", summary.get("samples", 0) == 0)
+    for month in missing_months:
+        path = output_dir / f"{month}_selected.npz"
+        if not path.exists() or force:
+            print(f"Writing {path.name}: 0 samples (empty month)", flush=True)
+            _write_empty_month(path, column_names)
+        manifest["splits"][month] = {
+            "file": path.name,
+            "samples": 0,
+            "features_including_label": int(column_names.size),
+            "benign": 0,
+            "malware": 0,
+            "empty": True,
+        }
+
+    manifest["splits"] = dict(sorted(manifest["splits"].items()))
+    manifest["empty_month_count"] = len(missing_months)
+    manifest["monthly_file_count"] = len(manifest["splits"])
+    temporary_manifest = manifest_path.with_suffix(".tmp.json")
+    temporary_manifest.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    os.replace(temporary_manifest, manifest_path)
+    return manifest
 
 
 def prepare_mh1m(source_path, output_dir, force=False, chunk_size=4096):
@@ -163,6 +221,7 @@ def prepare_mh1m(source_path, output_dir, force=False, chunk_size=4096):
             "features_including_label": int(features.shape[1] + 1),
             "benign": int(count - malware),
             "malware": malware,
+            "empty": False,
         }
         del written_labels
 
@@ -170,6 +229,19 @@ def prepare_mh1m(source_path, output_dir, force=False, chunk_size=4096):
     missing_months = sorted(
         set(map(str, full_range)) - set(map(str, observed_months))
     )
+    for month in missing_months:
+        output_path = output_dir / f"{month}_selected.npz"
+        print(f"Writing {output_path.name}: 0 samples (empty month)", flush=True)
+        _write_empty_month(output_path, output_column_names)
+        split_summaries[month] = {
+            "file": output_path.name,
+            "samples": 0,
+            "features_including_label": int(features.shape[1] + 1),
+            "benign": 0,
+            "malware": 0,
+            "empty": True,
+        }
+    split_summaries = dict(sorted(split_summaries.items()))
     manifest = {
         "source": str(source_path),
         "timestamp_field": DATE_COLUMN,
@@ -184,6 +256,8 @@ def prepare_mh1m(source_path, output_dir, force=False, chunk_size=4096):
         "first_month": str(observed_months[0]),
         "last_month": str(observed_months[-1]),
         "observed_month_count": int(observed_months.size),
+        "empty_month_count": len(missing_months),
+        "monthly_file_count": len(split_summaries),
         "missing_months": missing_months,
         "splits": split_summaries,
     }
@@ -205,11 +279,23 @@ def parse_args():
     parser.add_argument("--output-dir", default="data/mh1m_monthly")
     parser.add_argument("--chunk-size", type=int, default=4096)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--backfill-empty-only",
+        action="store_true",
+        help="Only add empty files for missing calendar months in an existing output",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.backfill_empty_only:
+        manifest = backfill_empty_months(args.output_dir, force=args.force)
+        print(
+            f"Monthly directory now contains {manifest['monthly_file_count']} files, "
+            f"including {manifest['empty_month_count']} empty months"
+        )
+        return
     manifest = prepare_mh1m(
         args.source,
         args.output_dir,
@@ -217,7 +303,7 @@ def main():
         chunk_size=args.chunk_size,
     )
     print(
-        f"Created {manifest['observed_month_count']} monthly files with "
+        f"Created {manifest['monthly_file_count']} monthly files with "
         f"{manifest['samples']} samples in {args.output_dir}"
     )
 

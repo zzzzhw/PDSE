@@ -650,6 +650,13 @@ def main():
             ben_test_len = X_test.shape[0] - y_test_family.shape[0]
             y_ben_test_family = np.full(ben_test_len, 'benign')
             all_test_family = np.concatenate((y_test_family, y_ben_test_family), axis=0)
+
+        # Empty month files preserve the calendar timeline but have no samples to
+        # evaluate, select, or use for retraining. Advance directly to next month.
+        if X_test.shape[0] == 0:
+            logging.info(f'Skipping {cur_month_str}: monthly dataset is empty')
+            cur_month += relativedelta(months=1)
+            continue
         
         logging.info(f'X_test.shape {X_test.shape}')
         logging.info(f'y_test.shape {y_test.shape}')
