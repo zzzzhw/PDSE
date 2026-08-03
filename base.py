@@ -541,7 +541,7 @@ def main():
 
     # save training acc
     fout = open(args.result, 'w')
-    fout.write('date\tTPR\tTNR\tFPR\tFNR\tACC\tPREC\tF1\tAUT(F1)\tF1-D\n')
+    fout.write('date\tTPR\tTNR\tFPR\tFNR\tACC\tPREC\tF1\tAUT(F1)\n')
     fout_retrain = open(args.result.split('.csv')[0] + '_retrain.csv', 'w')
     fout_retrain.write('date\tTPR\tTNR\tFPR\tFNR\tACC\tPREC\tF1\tAUT(F1)\n')
     fam_out = open(args.result.split('.csv')[0] + '_family.csv', 'w')
@@ -630,13 +630,18 @@ def main():
     all_date = init_date
     X_test_all = np.empty((0, NUM_FEATURES), dtype=X_train.dtype)
     index_map = []  # 用于记录索引与原始行的映射关系
-    f1_ds = [] # 存储每个月的F1-D
-
     while cur_month <= end:
         """
         Step (6): Load test_valuation data.
         """
         cur_month_str = cur_month.strftime('%Y-%m')
+
+        # Empty files keep calendar months explicit without entering evaluation or
+        # adaptation. The header-only check avoids decompressing the feature matrix.
+        if data.is_empty_month_dataset(args.data, cur_month_str):
+            logging.info(f'Skipping {cur_month_str}: monthly dataset is empty')
+            cur_month += relativedelta(months=1)
+            continue
 
         MODEL_DIR = os.path.join(SAVED_MODEL_FOLDER, train_dataset_name)
         NEW_ENC_MODEL_PATH = os.path.join(MODEL_DIR, f'encoder_{args.encoder}_{args.method}_{cur_month_str}_retrain.pth')
@@ -707,74 +712,6 @@ def main():
         Evaluate the test_valuation performance.
         """
         logging.info(f'Testing on {cur_month_str}')
-        # 设置计算F1-D的基准时间点
-        if args.F1D < 10:
-            threshold_date = dt.datetime.strptime(f'2013-0{args.F1D}', '%Y-%m')
-        else:
-            threshold_date = dt.datetime.strptime(f'2013-{args.F1D}', '%Y-%m')
-        # 判断并执行程序
-        if cur_month > threshold_date:
-            month = cur_month - relativedelta(months=args.F1D)
-            month_str = month.strftime('%Y-%m')
-            if args.data.startswith('tesseract'):
-                X, y, family = data.load_range_dataset_w_benign(args, args.data, month_str, month_str)
-            else:
-                X, y, family = data.load_range_dataset_w_benign(args, args.data, month_str, month_str)
-            y_binary = np.array([1 if item != 0 else 0 for item in y])
-
-            if args.classifier == 'res':
-                test_loader = DataLoader(X, batch_size=5000, shuffle=False)
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                classifier.to(device)
-                if torch.cuda.is_available():
-                    with torch.no_grad():
-                        y_pred_past = []
-                        for features in test_loader:
-                            features = features.float()
-                            features = features.to(device)
-                            # 将featrues转换为32位
-                            # features = features.cuda()
-                            features = features.reshape(-1, 34, 34)
-                            features = features.unsqueeze(0)
-                            features = features.permute(1, 0, 2, 3)
-                            y_hat = classifier.predict(features)
-                            # 从计算图抽出。
-                            y_hat = y_hat.detach().cpu().numpy().tolist()
-                            y_pred_past.extend(y_hat)
-                y_pred_past = np.array(y_pred_past)
-            else:
-                X_tensor_past = torch.from_numpy(X).float()
-                if args.encoder != None:
-                    if torch.cuda.is_available():
-                        X_tensor_past_feat = encoder.cuda().encode(X_tensor_past.cuda())
-                        X_test_past_encoded = X_tensor_past_feat.cpu().detach().numpy()
-                    else:
-                        X_test_past_encoded = encoder.encode(X_tensor_past).numpy()
-
-                if args.cls_feat == 'encoded':
-                    X_test_past_feat = X_test_past_encoded
-                else:
-                    X_test_past_feat = X
-
-                if cls_gpu == True:
-                    X_tensor_past = torch.from_numpy(X_test_past_feat).float()
-                    if torch.cuda.is_available():
-                        X_tensor_past = X_tensor_past.cuda()
-                        y_pred_past = classifier.cuda().predict(X_tensor_past)
-                        y_pred_past = y_pred_past.cpu().detach().numpy()
-                    else:
-                        y_pred_past = classifier.predict(X_tensor_past).numpy()
-                else:
-                    y_pred_past = classifier.predict(X_test_past_feat)
-            if args.multi_class == True:
-                # process multi-class y_pred to binary
-                # if y_pred is 0, it is 0, otherwise it is 1
-                y_pred_past_bin = np.where(y_pred_past == 0, 0, 1)
-            else:
-                y_pred_past_bin = y_pred_past
-            tpr, tnr, fpr, fnr, acc, precision, f1_d = get_model_stats(y_binary, y_pred_past_bin,
-                                                                       multi_class=args.eval_multi)
-            f1_ds.append(f1_d)
 
         '''
         测试集当月测试集在当月下的性能表现
@@ -1262,20 +1199,6 @@ def main():
     stat_out.close()
     # sample_score_out.close()
     sample_explanation.close()
-    # 读取文件
-    with open(args.result, 'r') as fin:
-        lines = fin.readlines()
-    # 修改内容
-    with open(args.result, 'w') as fout:
-        for i, line in enumerate(lines):
-            line = line.strip()  # 去除换行符
-            if 1 < i < len(f1_ds) + 2:
-                # 添加对应行的新数据
-                fout.write(f"{line}\t{f1_ds[i - 2]:.4f}\n")
-            elif i == 0:
-                fout.write(f"{line}\n")
-            else:
-                fout.write(f"{line}\tnan\n")
     return
 
 if __name__ == "__main__":

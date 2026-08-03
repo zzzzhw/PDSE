@@ -1,3 +1,5 @@
+import csv
+
 import numpy as np
 
 from experiments.prepare_mh1m import backfill_empty_months
@@ -106,6 +108,18 @@ def test_prepare_mh1m_writes_empty_files_for_missing_calendar_months(tmp_path):
         ]
         assert split["sha256"].shape == (0,)
         assert split["last_analysis_time"].shape == (0,)
+    with (output_dir / "monthly_sample_counts.csv").open(
+        encoding="utf-8", newline=""
+    ) as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[1] == {
+        "month": "2023-02",
+        "total": "0",
+        "benign": "0",
+        "malware": "0",
+        "malware_ratio": "",
+        "empty": "true",
+    }
 
 
 def test_backfills_empty_months_from_an_existing_manifest(tmp_path):
@@ -119,7 +133,8 @@ def test_backfills_empty_months_from_an_existing_manifest(tmp_path):
         last_analysis_time=np.array(["2023-01-01"], dtype="datetime64[s]"),
     )
     (output_dir / "manifest.json").write_text(
-        '{"missing_months":["2023-02"],"splits":{"2023-01":{}}}',
+        '{"missing_months":["2023-02"],"splits":{"2023-01":'
+        '{"samples":1,"benign":1,"malware":0,"empty":false}}}',
         encoding="utf-8",
     )
 

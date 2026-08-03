@@ -1,6 +1,7 @@
 """Split the processed MH-1M feature matrix by VirusTotal analysis month."""
 
 import argparse
+import csv
 import json
 import os
 from pathlib import Path
@@ -97,6 +98,37 @@ def _write_empty_month(path, column_names):
             temporary.unlink()
 
 
+def _write_monthly_counts(manifest, output_dir):
+    output_path = Path(output_dir) / "monthly_sample_counts.csv"
+    temporary = output_path.with_suffix(".tmp.csv")
+    with temporary.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=(
+                "month",
+                "total",
+                "benign",
+                "malware",
+                "malware_ratio",
+                "empty",
+            ),
+        )
+        writer.writeheader()
+        for month, summary in sorted(manifest["splits"].items()):
+            total = summary["samples"]
+            writer.writerow(
+                {
+                    "month": month,
+                    "total": total,
+                    "benign": summary["benign"],
+                    "malware": summary["malware"],
+                    "malware_ratio": f"{summary['malware'] / total:.8f}" if total else "",
+                    "empty": str(summary.get("empty", total == 0)).lower(),
+                }
+            )
+    os.replace(temporary, output_path)
+
+
 def backfill_empty_months(output_dir, force=False):
     """Add empty files for calendar months omitted by an older preparation run."""
     output_dir = Path(output_dir)
@@ -135,6 +167,7 @@ def backfill_empty_months(output_dir, force=False):
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     os.replace(temporary_manifest, manifest_path)
+    _write_monthly_counts(manifest, output_dir)
     return manifest
 
 
@@ -267,6 +300,7 @@ def prepare_mh1m(source_path, output_dir, force=False, chunk_size=4096):
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     os.replace(temporary_manifest, manifest_path)
+    _write_monthly_counts(manifest, output_dir)
     return manifest
 
 
