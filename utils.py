@@ -62,6 +62,11 @@ def parse_args():
     # that previously recorded experiment commands stay reproducible.
     p.add_argument('--pdse', '--ids', dest='pdse', action='store_true',
                    help='Enable PDSE during monthly HCL or CADE retraining.')
+    p.add_argument('--pdse-ablation',
+                   choices=['none', 'no-triplet', 'no-perturbation'],
+                   default='none',
+                   help='PDSE ablation: expose selected samples directly, or retain '
+                        'triplets without parameter perturbation.')
     p.add_argument('--pdse-lambda', '--ids-lambda', dest='pdse_lambda',
                    type=float, default=1e-3,
                    help='Scale of the normalized encoder weight perturbation.')

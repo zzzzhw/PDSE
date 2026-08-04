@@ -167,6 +167,14 @@ def main():
             raise ValueError('--pdse-ema-decay must be in [0, 1)')
         if args.pdse_lambda <= 0 or args.pdse_batch_size < 3:
             raise ValueError('PDSE requires positive perturbation scale and batch size >= 3')
+        if args.pdse_ablation != 'none':
+            if args.encoder != 'simple-enc-mlp' or args.loss_func != 'hi-dist-xent':
+                raise ValueError('PDSE ablations currently support HCL only')
+            if (args.pdse_ablation == 'no-perturbation'
+                    and args.pdse_hcl_update_mode != 'combined'):
+                raise ValueError(
+                    'The no-perturbation ablation requires combined HCL updates'
+                )
 
     if args.hcl_enhancement != 'none':
         if args.encoder != 'simple-enc-mlp' or args.loss_func != 'hi-dist-xent':

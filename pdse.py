@@ -144,6 +144,36 @@ def build_exposure_loader(X, y_family, y_binary, exposure_count, timestamps,
     return loader, indices
 
 
+def build_direct_exposure_loader(X, y_family, y_binary, exposure_count,
+                                 batch_size, seed=0):
+    """Expose newly labeled samples directly, without historical triplets."""
+    X = np.asarray(X)
+    y_family = np.asarray(y_family)
+    y_binary = np.asarray(y_binary)
+    sample_count = X.shape[0]
+    if y_family.shape != (sample_count,) or y_binary.shape != (sample_count,):
+        raise ValueError('PDSE features and labels must have equal sample counts')
+    if exposure_count <= 0 or exposure_count >= sample_count:
+        raise ValueError('exposure_count must identify a non-empty tail of the training set')
+
+    indices = np.arange(sample_count - exposure_count, sample_count)
+    rng = np.random.default_rng(seed)
+    rng.shuffle(indices)
+    X_tensor = torch.from_numpy(X[indices]).float()
+    y_tensor = torch.from_numpy(y_family[indices]).long()
+    y_binary_tensor = torch.from_numpy(
+        to_categorical(y_binary[indices], num_classes=2)
+    ).float()
+    dataset = TensorDataset(X_tensor, y_tensor, y_binary_tensor)
+    loader = DataLoader(
+        dataset,
+        batch_size=max(1, min(int(batch_size), exposure_count)),
+        shuffle=False,
+        drop_last=False,
+    )
+    return loader, indices
+
+
 def _collate_role_major_triplets(batch):
     """Flatten triplets as all anchors, all positives, then all negatives."""
     X_batch, y_batch, y_binary_batch = zip(*batch)
@@ -257,6 +287,15 @@ class HCLPDSE:
         finally:
             add_weight_diff(model, self.diff, -self.perturb_scale)
         return float(robust_loss.detach())
+
+    def accumulate_clean_exposure_grad(self, model, x_batch, y_batch,
+                                       y_binary_batch, args):
+        """Accumulate exposure loss without searching or applying a perturbation."""
+        exposure_loss, _, _, _ = self._loss(
+            model, x_batch, y_batch, y_binary_batch, args
+        )
+        (self.robust_weight * exposure_loss).backward()
+        return float(exposure_loss.detach())
 
 
 class CADEPDSE:

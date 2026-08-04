@@ -19,11 +19,13 @@ class PDSECLITest(unittest.TestCase):
             '--pdse',
             '--pdse-lambda', '0.02',
             '--pdse-hcl-update-mode', 'separate',
+            '--pdse-ablation', 'no-triplet',
         )
 
         self.assertTrue(args.pdse)
         self.assertEqual(args.pdse_lambda, 0.02)
         self.assertEqual(args.pdse_hcl_update_mode, 'separate')
+        self.assertEqual(args.pdse_ablation, 'no-triplet')
         self.assertFalse(hasattr(args, 'ids'))
 
     def test_legacy_ids_flags_map_to_pdse_namespace(self):

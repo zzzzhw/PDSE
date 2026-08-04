@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 
+from pdse import build_direct_exposure_loader
 from pdse import build_exposure_indices
 
 
@@ -80,6 +81,26 @@ class PDSETripletConstructionTest(unittest.TestCase):
                 exposure_count=1,
                 timestamps=np.array(['2020-01', '2020-02']),
             )
+
+    def test_direct_exposure_contains_only_newly_selected_samples(self):
+        X = np.arange(24, dtype=np.float32).reshape(6, 4)
+        y_family = np.array([0, 1, 2, 0, 0, 1])
+        y_binary = np.array([0, 1, 1, 0, 0, 1])
+
+        loader, indices = build_direct_exposure_loader(
+            X,
+            y_family,
+            y_binary,
+            exposure_count=3,
+            batch_size=2,
+            seed=5,
+        )
+        exposed_X = np.concatenate([batch[0].numpy() for batch in loader])
+
+        self.assertEqual(set(indices), {3, 4, 5})
+        self.assertEqual(len(loader), 2)
+        self.assertEqual(exposed_X.shape, (3, 4))
+        self.assertEqual({tuple(row) for row in exposed_X}, {tuple(row) for row in X[3:]})
 
 
 if __name__ == '__main__':

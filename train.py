@@ -17,6 +17,7 @@ from samplers import HalfSampler
 from samplers import TripletSampler
 from pdse import CADEPDSE
 from pdse import HCLPDSE
+from pdse import build_direct_exposure_loader
 from pdse import build_exposure_loader
 from hcl_enhancements import compute_hcl_training_loss
 from hcl_enhancements import sam_parameter_perturbation
@@ -229,15 +230,30 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
     if getattr(args, 'pdse', False) and pdse_exposure_count > 0:
         if pdse_timestamps is None:
             raise ValueError('PDSE requires timestamps for all training samples')
-        pdse_loader, pdse_indices = build_exposure_loader(
-            X_train,
-            y_train,
-            y_train_binary,
-            pdse_exposure_count,
-            pdse_timestamps,
-            args.pdse_batch_size,
-            seed=args.seed,
-        )
+        pdse_ablation = getattr(args, 'pdse_ablation', 'none')
+        if pdse_ablation == 'no-triplet':
+            pdse_loader, pdse_indices = build_direct_exposure_loader(
+                X_train,
+                y_train,
+                y_train_binary,
+                pdse_exposure_count,
+                args.pdse_batch_size,
+                seed=args.seed,
+            )
+            exposure_units = len(pdse_indices)
+            exposure_rows = len(pdse_indices)
+        else:
+            pdse_loader, pdse_indices = build_exposure_loader(
+                X_train,
+                y_train,
+                y_train_binary,
+                pdse_exposure_count,
+                pdse_timestamps,
+                args.pdse_batch_size,
+                seed=args.seed,
+            )
+            exposure_units = len(pdse_indices) // 3
+            exposure_rows = len(pdse_indices)
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if args.loss_func == 'hi-dist-xent':
             pdse_method = 'HCL'
@@ -251,12 +267,13 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             )
         pdse_update_mode = pdse_controller.update_mode
         logging.info(
-            '%s+PDSE exposure: selected=%d triplets=%d pool=%d batches=%d '
+            '%s+PDSE exposure: ablation=%s selected=%d units=%d rows=%d batches=%d '
             'lambda=%g gamma=%g update=%s',
             pdse_method,
+            pdse_ablation,
             pdse_exposure_count,
-            len(pdse_indices) // 3,
-            len(pdse_indices),
+            exposure_units,
+            exposure_rows,
             len(pdse_loader),
             args.pdse_lambda,
             args.pdse_gamma,
@@ -330,6 +347,7 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
 
     pdse_active = pdse_controller is not None and epoch > args.pdse_warmup
     pdse_iterator = iter(pdse_loader) if pdse_active else None
+    pdse_ablation = getattr(args, 'pdse_ablation', 'none')
 
     idx = 0
     for idx, (x_batch, y_batch, y_bin_batch, weight_batch) in enumerate(train_loader):
@@ -345,21 +363,26 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 pdse_x = pdse_x.to(device)
                 pdse_y = pdse_y.to(device)
                 pdse_y_binary = pdse_y_binary.to(device)
-                search_stats = pdse_controller.update(
-                    encoder, pdse_x, pdse_y, pdse_y_binary, args
-                )
-                pdse_search_losses.update(search_stats['search_loss'], pdse_x.shape[0])
-                pdse_feature_distances.update(
-                    search_stats['feature_distance'], pdse_x.shape[0]
-                )
-                if (isinstance(pdse_controller, (HCLPDSE, CADEPDSE))
-                        and pdse_controller.update_mode == 'combined'):
+                if pdse_ablation == 'no-perturbation':
                     combined_pdse_batch = (pdse_x, pdse_y, pdse_y_binary)
                 else:
-                    robust_loss = pdse_controller.robust_step(
-                        encoder, optimizer, pdse_x, pdse_y, pdse_y_binary, args
+                    search_stats = pdse_controller.update(
+                        encoder, pdse_x, pdse_y, pdse_y_binary, args
                     )
-                    pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
+                    pdse_search_losses.update(
+                        search_stats['search_loss'], pdse_x.shape[0]
+                    )
+                    pdse_feature_distances.update(
+                        search_stats['feature_distance'], pdse_x.shape[0]
+                    )
+                    if (isinstance(pdse_controller, (HCLPDSE, CADEPDSE))
+                            and pdse_controller.update_mode == 'combined'):
+                        combined_pdse_batch = (pdse_x, pdse_y, pdse_y_binary)
+                    else:
+                        robust_loss = pdse_controller.robust_step(
+                            encoder, optimizer, pdse_x, pdse_y, pdse_y_binary, args
+                        )
+                        pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
 
         x_batch = x_batch.to(device)
         y_batch = y_batch.to(device)
@@ -391,9 +414,14 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             loss.backward()
             if combined_pdse_batch is not None:
                 pdse_x, pdse_y, pdse_y_binary = combined_pdse_batch
-                robust_loss = pdse_controller.accumulate_robust_grad(
-                    encoder, pdse_x, pdse_y, pdse_y_binary, args
-                )
+                if pdse_ablation == 'no-perturbation':
+                    robust_loss = pdse_controller.accumulate_clean_exposure_grad(
+                        encoder, pdse_x, pdse_y, pdse_y_binary, args
+                    )
+                else:
+                    robust_loss = pdse_controller.accumulate_robust_grad(
+                        encoder, pdse_x, pdse_y, pdse_y_binary, args
+                    )
                 pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
                 torch.nn.utils.clip_grad_norm_(
                     encoder.parameters(), pdse_controller.grad_clip
@@ -461,9 +489,14 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                     sam_loss.backward()
             if combined_pdse_batch is not None:
                 pdse_x, pdse_y, pdse_y_binary = combined_pdse_batch
-                robust_loss = pdse_controller.accumulate_robust_grad(
-                    encoder, pdse_x, pdse_y, pdse_y_binary, args
-                )
+                if pdse_ablation == 'no-perturbation':
+                    robust_loss = pdse_controller.accumulate_clean_exposure_grad(
+                        encoder, pdse_x, pdse_y, pdse_y_binary, args
+                    )
+                else:
+                    robust_loss = pdse_controller.accumulate_robust_grad(
+                        encoder, pdse_x, pdse_y, pdse_y_binary, args
+                    )
                 pdse_robust_losses.update(robust_loss, pdse_x.shape[0])
                 torch.nn.utils.clip_grad_norm_(
                     encoder.parameters(), pdse_controller.grad_clip
