@@ -19,12 +19,29 @@ DECAY=0.95
 E=250
 WLR=0.00015
 WE=100
-DATA=gen_apigraph_drebin
-TRAIN_START=2012-01
-TRAIN_END=2012-12
-TEST_START=2013-01
-TEST_END=2018-12
+DATA=${1:-${DATA:-bodmas}}
+case ${DATA} in
+    gen_apigraph_drebin)
+        DATA_TAG=gen_apigraph
+        TRAIN_START=2012-01
+        TRAIN_END=2012-12
+        TEST_START=2013-01
+        TEST_END=2018-12
+        ;;
+    bodmas)
+        DATA_TAG=bodmas
+        TRAIN_START=2007-01
+        TRAIN_END=2019-09
+        TEST_START=2019-10
+        TEST_END=2020-09
+        ;;
+    *)
+        echo "Unsupported dataset: ${DATA}" >&2
+        exit 2
+        ;;
+esac
 AL_OPT=adam
+# HCL_ENHANCEMENT=sam
 HCL_ENHANCEMENT=${HCL_ENHANCEMENT:-none}
 
 case ${HCL_ENHANCEMENT} in
@@ -49,9 +66,9 @@ S='half'
 B=1024
 LOSS='hi-dist-xent'
 TS=$(date "+%m.%d-%H.%M.%S")
-MODEL_DIR=models/${RUN_TAG}/${CNT}
+MODEL_DIR=models/${RUN_TAG}/${DATA}/${CNT}
 RUN_DIR=experiments/${RESULT_DIR}/${CNT}/${TS}
-RUN_NAME=gen_apigraph_${RUN_TAG}_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
+RUN_NAME=${DATA_TAG}_${RUN_TAG}_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
 mkdir -p ${RUN_DIR} ${MODEL_DIR}
 
 nohup python -u base.py	                                \

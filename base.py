@@ -1194,6 +1194,7 @@ def main():
     date_index_long_path = args.result.split('.csv')[0] + '_lifetime.csv'
     zero_counts.to_csv(date_index_long_path, sep='\t', index=False)
     fout.close()
+    fout_retrain.close()
     fam_out.close()
     sample_out.close()
     stat_out.close()

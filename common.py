@@ -11,19 +11,22 @@ def to_categorical(y, num_classes=None):
     categorical[np.arange(n), y] = 1
     return categorical
 
+def safe_divide(numerator, denominator):
+    return numerator / float(denominator) if denominator else 0.0
+
+
 def f1_score(precision, recall):
-    return 2*precision*recall/float(precision+recall)
+    return safe_divide(2 * precision * recall, precision + recall)
 
 def get_model_stats(y, y_pred, multi_class = False):
     if multi_class == False:
-        tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
-        acc = (tp+tn)/float(tp+tn+fp+fn)
-        fpr = fp/float(fp+tn)
-        tpr = tp/float(tp+fn)
-        tnr = tn/float(fp+tn)
-        fnr = fn/float(fn+tp)
-        precision = tp/float(tp+fp)
-        recall = tp/float(tp+fn)
+        tn, fp, fn, tp = confusion_matrix(y, y_pred, labels=[0, 1]).ravel()
+        acc = safe_divide(tp + tn, tp + tn + fp + fn)
+        fpr = safe_divide(fp, fp + tn)
+        tpr = safe_divide(tp, tp + fn)
+        tnr = safe_divide(tn, fp + tn)
+        fnr = safe_divide(fn, fn + tp)
+        precision = safe_divide(tp, tp + fp)
         return tpr, tnr, fpr, fnr, acc, precision, f1_score(precision, tpr)
     else:
         # https://stackoverflow.com/questions/31324218/scikit-learn-how-to-obtain-true-positive-true-negative-false-positive-and-fal

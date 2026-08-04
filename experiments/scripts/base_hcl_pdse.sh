@@ -17,24 +17,41 @@ DECAY=0.95
 E=250
 WLR=0.00015
 WE=100
-DATA=gen_apigraph_drebin
-TRAIN_START=2012-01
-TRAIN_END=2012-12
-TEST_START=2013-01
-TEST_END=2018-12
+DATA=${1:-${DATA:-gen_apigraph_drebin}}
+case ${DATA} in
+    gen_apigraph_drebin)
+        DATA_TAG=gen_apigraph
+        TRAIN_START=2012-01
+        TRAIN_END=2012-12
+        TEST_START=2013-01
+        TEST_END=2018-12
+        ;;
+    bodmas)
+        DATA_TAG=bodmas
+        TRAIN_START=2007-01
+        TRAIN_END=2019-09
+        TEST_START=2019-10
+        TEST_END=2020-09
+        ;;
+    *)
+        echo "Unsupported dataset: ${DATA}" >&2
+        exit 2
+        ;;
+esac
+
 RESULT_DIR=results/hcl_pdse_combined
 AL_OPT=adam
 
-CNT=25
+CNT=50
 D=6
 MODELDIM="512-384-256-128"
 SAMPLER=half
 BATCH_SIZE=1024
 LOSS=hi-dist-xent
 TS=$(date "+%m.%d-%H.%M.%S")
-MODEL_DIR=models/hcl_pdse_combined/${CNT}
+MODEL_DIR=models/hcl_pdse_combined/${DATA}/${CNT}
 RUN_DIR=experiments/${RESULT_DIR}/${CNT}/${TS}
-RUN_NAME=gen_apigraph_hcl_pdse_combined_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
+RUN_NAME=${DATA_TAG}_hcl_pdse_combined_cnt${CNT}_${SEQ}_seed${SEED}_test_${TEST_START}_${TEST_END}
 mkdir -p ${RUN_DIR} ${MODEL_DIR}
 
 python -u base.py                                           \

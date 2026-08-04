@@ -7,6 +7,7 @@ data/mh1m/
 # Experiment outputs.
 *.csv
 *.log
+*.tsv
 nohup.out
 
 # Python caches and local environments.
@@ -34,3 +35,4 @@ Thumbs.db
 
 # Temporary working files.
 tmp/
+

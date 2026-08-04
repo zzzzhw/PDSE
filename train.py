@@ -320,9 +320,12 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
     pdse_robust_losses = AverageMeter()
     end = time.time()
 
-    device = (torch.device('cuda')
-                if torch.cuda.is_available()
-                else torch.device('cpu'))
+    if pdse_controller is not None:
+        device = pdse_controller.device
+    else:
+        device = (torch.device('cuda')
+                    if torch.cuda.is_available()
+                    else torch.device('cpu'))
     encoder = encoder.to(device)
 
     pdse_active = pdse_controller is not None and epoch > args.pdse_warmup

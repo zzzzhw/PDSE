@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import argparse
+import datetime as dt
 import math
 import numpy as np
 import torch
@@ -14,7 +15,7 @@ def parse_args():
     """
     p = argparse.ArgumentParser()
 
-    p.add_argument('--data', help='The dataset to use.')
+    p.add_argument('--data', help='The dataset to use, including bodmas.')
     p.add_argument('--mdate', help='Encoder model date to use.')
     p.add_argument('--clsdate', help='Classifier model date to use.')
 
@@ -242,6 +243,39 @@ def parse_args():
     args = p.parse_args()
 
     return args
+
+
+def delayed_month(current_month, test_start, delay):
+    """Return the month evaluated by F1-D once D test months have elapsed."""
+    if delay < 0:
+        raise ValueError("F1-D delay must be non-negative")
+    current = dt.datetime.strptime(current_month, "%Y-%m")
+    start = dt.datetime.strptime(test_start, "%Y-%m")
+    elapsed = (current.year - start.year) * 12 + current.month - start.month
+    if elapsed < delay:
+        return None
+    ordinal = current.year * 12 + current.month - 1 - delay
+    year, zero_based_month = divmod(ordinal, 12)
+    return f"{year:04d}-{zero_based_month + 1:02d}"
+
+
+def append_f1d_results(result_path, scores_by_month):
+    """Append F1-D values to their matching result months."""
+    result_path = os.fspath(result_path)
+    temporary_path = result_path + ".tmp"
+    with open(result_path, "r", encoding="utf-8") as source, open(
+        temporary_path, "w", encoding="utf-8"
+    ) as destination:
+        for line_number, line in enumerate(source):
+            stripped = line.rstrip("\r\n")
+            if line_number == 0:
+                destination.write(stripped + "\n")
+                continue
+            month = stripped.split("\t", 1)[0]
+            score = scores_by_month.get(month)
+            value = "nan" if score is None else f"{score:.4f}"
+            destination.write(f"{stripped}\t{value}\n")
+    os.replace(temporary_path, result_path)
 
 
 def get_model_dims(model_name, input_layer_num, hidden_layer_num, output_layer_num):
