@@ -48,7 +48,7 @@ def compute_hcl_training_loss(args, model, x_batch, y_batch,
     enhancement = getattr(args, 'hcl_enhancement', 'none')
     _, features, predictions = model(x_batch)
 
-    if enhancement in ('none', 'sam'):
+    if enhancement in ('none', 'sam', 'rwp', 'gaussian_noise', 'damp'):
         criterion = HiDistanceXentLoss().to(x_batch.device)
         return criterion(
             args.xent_lambda,
@@ -105,10 +105,12 @@ def compute_hcl_training_loss(args, model, x_batch, y_batch,
 
 @contextmanager
 def sam_parameter_perturbation(model, rho):
-    """Temporarily move parameters to SAM's first-order worst-case neighbor."""
+    """Temporarily perturb only the HCL encoder toward SAM's worst case."""
+    if not hasattr(model, 'encoder_model'):
+        raise ValueError('HCL+SAM requires a model with an encoder_model module')
     parameters = [
         parameter
-        for parameter in model.parameters()
+        for parameter in model.encoder_model.parameters()
         if parameter.requires_grad and parameter.grad is not None
     ]
     if not parameters:
@@ -139,3 +141,100 @@ def sam_parameter_perturbation(model, rho):
         with torch.no_grad():
             for parameter, perturbation in perturbations:
                 parameter.sub_(perturbation)
+
+
+@contextmanager
+def rwp_parameter_perturbation(model, gamma):
+    """Temporarily apply filter-wise Gaussian noise to the HCL encoder."""
+    if gamma <= 0:
+        raise ValueError('RWP gamma must be positive')
+    if not hasattr(model, 'encoder_model'):
+        raise ValueError('HCL+RWP requires a model with an encoder_model module')
+
+    perturbations = []
+    for parameter in model.encoder_model.parameters():
+        if not parameter.requires_grad:
+            continue
+        parameter_value = parameter.detach()
+        if parameter.ndim > 1:
+            filter_norms = parameter_value.reshape(
+                parameter.shape[0], -1
+            ).norm(p=2, dim=1)
+            scale_shape = (parameter.shape[0],) + (1,) * (parameter.ndim - 1)
+            noise_scale = gamma * filter_norms.reshape(scale_shape)
+        else:
+            noise_scale = gamma * (parameter_value.norm(p=2) + EPS)
+        if not torch.isfinite(noise_scale).all():
+            raise FloatingPointError('RWP parameter norm is not finite')
+        perturbations.append((
+            parameter,
+            torch.randn_like(parameter) * noise_scale,
+        ))
+
+    with torch.no_grad():
+        for parameter, perturbation in perturbations:
+            parameter.add_(perturbation)
+
+    try:
+        yield
+    finally:
+        with torch.no_grad():
+            for parameter, perturbation in perturbations:
+                parameter.sub_(perturbation)
+
+
+@contextmanager
+def gaussian_weight_perturbation(model, std):
+    """Temporarily add fixed-scale Gaussian noise to the HCL encoder."""
+    if std <= 0:
+        raise ValueError('Gaussian weight noise std must be positive')
+    if not hasattr(model, 'encoder_model'):
+        raise ValueError(
+            'HCL+Gaussian noise requires a model with an encoder_model module'
+        )
+
+    perturbations = [
+        (parameter, torch.randn_like(parameter) * std)
+        for parameter in model.encoder_model.parameters()
+        if parameter.requires_grad
+    ]
+    with torch.no_grad():
+        for parameter, perturbation in perturbations:
+            parameter.add_(perturbation)
+
+    try:
+        yield
+    finally:
+        with torch.no_grad():
+            for parameter, perturbation in perturbations:
+                parameter.sub_(perturbation)
+
+
+@contextmanager
+def damp_parameter_perturbation(model, std):
+    """Temporarily apply element-wise multiplicative Gaussian perturbations."""
+    if std <= 0:
+        raise ValueError('DAMP std must be positive')
+    if not hasattr(model, 'encoder_model'):
+        raise ValueError('HCL+DAMP requires a model with an encoder_model module')
+
+    perturbations = []
+    for name, parameter in model.encoder_model.named_parameters():
+        if not parameter.requires_grad or not name.endswith('weight'):
+            continue
+        multiplier = 1.0 + torch.randn_like(parameter) * std
+        perturbation = parameter.detach() * (multiplier - 1.0)
+        perturbations.append((parameter, perturbation, multiplier))
+
+    with torch.no_grad():
+        for parameter, perturbation, _ in perturbations:
+            parameter.add_(perturbation)
+
+    try:
+        yield
+    finally:
+        with torch.no_grad():
+            for parameter, perturbation, multiplier in perturbations:
+                parameter.sub_(perturbation)
+                if parameter.grad is not None:
+                    parameter.grad.mul_(multiplier)

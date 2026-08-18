@@ -98,6 +98,8 @@ def parse_args():
     p.add_argument('--pdse-unbalanced-exposure', '--ids-unbalanced-exposure',
                    dest='pdse_unbalanced_exposure', action='store_true',
                    help=argparse.SUPPRESS)
+    p.add_argument('--pdse-balanced-exposure', action='store_true',
+                   help='Balance benign and malicious current samples in PDSE exposure.')
     p.add_argument('--pdse-warmup', '--ids-warmup', dest='pdse_warmup',
                    type=int, default=5,
                    help='Monthly retraining epochs before PDSE is activated.')
@@ -106,7 +108,9 @@ def parse_args():
                    help='Gradient clipping norm for PDSE search and robust updates.')
 
     # Standard HCL training enhancements used as comparison baselines.
-    p.add_argument('--hcl-enhancement', choices=['none', 'mixup', 'focal', 'sam'],
+    p.add_argument('--hcl-enhancement',
+                   choices=['none', 'mixup', 'focal', 'sam', 'rwp',
+                            'gaussian_noise', 'damp'],
                    default='none',
                    help='Optional HCL training enhancement baseline.')
     p.add_argument('--hcl-mixup-alpha', type=float, default=0.2,
@@ -117,6 +121,16 @@ def parse_args():
                    help='Positive-class alpha for HCL+Focal Loss.')
     p.add_argument('--hcl-sam-rho', type=float, default=0.05,
                    help='Parameter-neighborhood radius for HCL+SAM.')
+    p.add_argument('--hcl-rwp-gamma', type=float, default=0.01,
+                   help='Filter-wise Gaussian noise scale for HCL+RWP.')
+    p.add_argument('--hcl-rwp-alpha', type=float, default=0.5,
+                   help='Clean-loss mixing coefficient for HCL+RWP.')
+    p.add_argument('--hcl-gaussian-noise-std', type=float, default=0.01,
+                   help='Additive Gaussian weight-noise std for HCL.')
+    p.add_argument('--hcl-damp-std', type=float, default=0.2,
+                   help='Multiplicative Gaussian noise std for HCL+DAMP.')
+    p.add_argument('--hcl-grad-clip', type=float, default=0.0,
+                   help='Maximum HCL gradient norm; 0 disables clipping.')
 
     # encoder model
     p.add_argument('--encoder', default=None, \

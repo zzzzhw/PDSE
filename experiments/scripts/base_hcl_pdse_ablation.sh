@@ -8,7 +8,7 @@ source C:/Users/sakura/anaconda3/etc/profile.d/conda.sh
 conda activate apkencoder
 set -aex
 
-ABLATION=${1:-${ABLATION:-no-triplet}}
+ABLATION=${1:-${ABLATION:-no-perturbation}}
 DATA=${2:-${DATA:-gen_apigraph_drebin}}
 case ${ABLATION} in
     no-triplet|no-perturbation) ;;
@@ -56,7 +56,7 @@ DECAY=${DECAY:-0.95}
 E=${E:-250}
 WLR=${WLR:-0.00015}
 WE=${WE:-100}
-CNT=${CNT:-50}
+CNT=${CNT:-25}
 TEST_START=${TEST_START_OVERRIDE:-${DEFAULT_TEST_START}}
 TEST_END=${TEST_END_OVERRIDE:-${DEFAULT_TEST_END}}
 PDSE_WARMUP=${PDSE_WARMUP:-5}

@@ -26,6 +26,8 @@ venv/
 *.joblib
 *.npz
 *.json
+*.ppt
+*.pdf
 
 # Editor and operating-system files.
 .idea/

@@ -152,6 +152,11 @@ def main():
         torch.cuda.manual_seed_all(args.seed)
 
     if args.pdse:
+        if args.pdse_balanced_exposure and args.pdse_unbalanced_exposure:
+            raise ValueError(
+                '--pdse-balanced-exposure and --pdse-unbalanced-exposure '
+                'cannot be used together'
+            )
         pdse_compatible = (
             (args.encoder == 'simple-enc-mlp' and args.loss_func == 'hi-dist-xent')
             or (args.encoder == 'cae' and args.loss_func == 'triplet-mse')
@@ -193,6 +198,17 @@ def main():
             )
         if args.hcl_sam_rho <= 0:
             raise ValueError('--hcl-sam-rho must be positive')
+        if args.hcl_rwp_gamma <= 0:
+            raise ValueError('--hcl-rwp-gamma must be positive')
+        if not 0.0 < args.hcl_rwp_alpha < 1.0:
+            raise ValueError('--hcl-rwp-alpha must be in (0, 1)')
+        if (args.hcl_enhancement == 'gaussian_noise'
+                and args.hcl_gaussian_noise_std <= 0):
+            raise ValueError('--hcl-gaussian-noise-std must be positive')
+        if args.hcl_enhancement == 'damp' and args.hcl_damp_std <= 0:
+            raise ValueError('--hcl-damp-std must be positive')
+    if args.hcl_grad_clip < 0:
+        raise ValueError('--hcl-grad-clip must be non-negative')
 
     start_epoch, end_epoch, step = args.lr_decay_epochs.split(',')
     args.lr_decay_epochs = list([range(int(start_epoch), int(end_epoch), int(step))])

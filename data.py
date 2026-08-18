@@ -13,6 +13,14 @@ import zipfile
 
 DATASET_DIRECTORIES = {
     'bodmas': 'bodmas_monthly',
+    'mh1m': 'mh1m_monthly',
+    'kronodroid': 'kronodroid_real_2008_2014',
+}
+
+DATASET_PREPARATION_COMMANDS = {
+    'bodmas': 'python experiments/prepare_bodmas.py',
+    'kronodroid': 'python experiments/prepare_kronodroid.py',
+    'kronodroid_real_2008_2014': 'python experiments/prepare_kronodroid.py',
 }
 
 
@@ -22,10 +30,7 @@ def resolve_dataset_directory(data_name):
 
 def is_empty_month_dataset(data_name, month, folder='data/'):
     """Check the row count from an NPZ header without loading its feature matrix."""
-    data_directory = {
-        'bodmas': 'bodmas_monthly',
-        'mh1m': 'mh1m_monthly',
-    }.get(data_name, data_name)
+    data_directory = resolve_dataset_directory(data_name)
     saved_data_file = os.path.join(
         folder, data_directory, f'{month}_selected.npz'
     )
@@ -52,14 +57,27 @@ def load_range_dataset_w_benign(args, data_name, start_month, end_month, folder=
         dataset_name = f'{start_month}'
     data_directory = resolve_dataset_directory(data_name)
     saved_data_file = os.path.join(folder, data_directory, f'{dataset_name}_selected.npz')
-    if data_name == 'bodmas' and not os.path.exists(saved_data_file):
-        raise FileNotFoundError(
-            f'{saved_data_file} does not exist. Prepare BODMAS with: '
-            'python experiments/prepare_bodmas.py'
-        )
-    data = np.load(saved_data_file, allow_pickle=True)
-    X_train, y_train = data['X_train'], data['y_train']
-    y_mal_family = data['y_mal_family']
+    if not os.path.exists(saved_data_file):
+        message = f'{saved_data_file} does not exist.'
+        prepare_command = DATASET_PREPARATION_COMMANDS.get(data_name)
+        if prepare_command is not None:
+            message += f' Prepare it with: {prepare_command}'
+        raise FileNotFoundError(message)
+    with np.load(saved_data_file, allow_pickle=True) as loaded:
+        X_train = loaded['X_train']
+        y_train = loaded['y_train']
+        y_mal_family = loaded['y_mal_family']
     if args.classifier == 'res':
-        X_train = X_train[:,0:1156]
+        # ResClassifier consumes a fixed 34x34 feature map. Preserve the
+        # historical truncation and pad lower-dimensional datasets such as
+        # KronoDroid so they can use the same architecture.
+        resnet_features = 34 * 34
+        if X_train.shape[1] < resnet_features:
+            X_train = np.pad(
+                X_train,
+                ((0, 0), (0, resnet_features - X_train.shape[1])),
+                mode='constant',
+            )
+        else:
+            X_train = X_train[:, :resnet_features]
     return X_train, y_train, y_mal_family

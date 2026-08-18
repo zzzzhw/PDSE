@@ -1,77 +1,125 @@
-#! /bin/bash
+#!/bin/bash
 
 #SBATCH -t 03:00:00
-
 #SBATCH -n 1
-
 #SBATCH -c 8
-# win
-# 红伟电脑运行脚本
-source C:/Users/sakura/anaconda3/etc/profile.d/conda.sh
-conda activate apkencoder
-set a-ex
 
-SEQ=088
-LR=0.003
-OPT=sgd
-SCH=step
-DECAY=0.95
-E=100
-WLR=0.00015
-WE=100
-DATA=gen_apigraph_drebin
-TRAIN_START=2012-01
-TRAIN_END=2012-12
-TEST_START=2013-01
-TEST_END=2018-12
-RESULT_DIR=results/svm
-AL_OPT=adam
+set -o pipefail
 
-CNT=200
-D=6
+CONDA_SH=${CONDA_SH:-C:/Users/sakura/anaconda3/etc/profile.d/conda.sh}
+source "${CONDA_SH}"
+conda activate "${CONDA_ENV:-apkencoder}"
+set -eu
 
-#50 100 150 200
-modeldim="512-384-256-128"
-S='half'
-B=1024
-LOSS='hi-dist'
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_ROOT=$(cd "${SCRIPT_DIR}/../.." && pwd)
+cd "${PROJECT_ROOT}"
+
+SEQ=${SEQ:-088}
+SEED=${SEED:-1}
+LR=${LR:-0.003}
+OPT=${OPT:-sgd}
+SCH=${SCH:-step}
+DECAY=${DECAY:-0.95}
+E=${E:-100}
+WLR=${WLR:-0.00015}
+WE=${WE:-100}
+
+DATA=${1:-${DATA:-gen_androzoo_drebin}}
+# DATA=${1:-${DATA:-gen_apigraph_drebin}}
+
+case ${DATA} in
+    gen_androzoo_drebin)
+        DATA_TAG=gen_androzoo
+        TRAIN_START=2019-01
+        TRAIN_END=2019-12
+        DEFAULT_TEST_START=2020-01
+        DEFAULT_TEST_END=2021-12
+        ;;
+    gen_apigraph_drebin)
+        DATA_TAG=gen_apigraph
+        TRAIN_START=2012-01
+        TRAIN_END=2012-12
+        DEFAULT_TEST_START=2013-01
+        DEFAULT_TEST_END=2018-12
+        ;;
+    bodmas)
+        DATA_TAG=bodmas
+        TRAIN_START=2007-01
+        TRAIN_END=2019-09
+        DEFAULT_TEST_START=2019-10
+        DEFAULT_TEST_END=2020-09
+        ;;
+    kronodroid|kronodroid_real_2008_2014)
+        DATA_TAG=kronodroid_real
+        TRAIN_START=2008-01
+        TRAIN_END=2010-12
+        DEFAULT_TEST_START=2011-01
+        DEFAULT_TEST_END=2014-12
+        ;;
+    *)
+        echo "Unsupported dataset: ${DATA}" >&2
+        exit 2
+        ;;
+esac
+
+TEST_START=${TEST_START_OVERRIDE:-${DEFAULT_TEST_START}}
+TEST_END=${TEST_END_OVERRIDE:-${DEFAULT_TEST_END}}
+AL_OPT=${AL_OPT:-adam}
+
+CNT=${CNT:-200}
+
+D=${D:-6}
+MODELDIM=${MODELDIM:-512-384-256-128}
+SAMPLER=${SAMPLER:-half}
+BATCH_SIZE=${BATCH_SIZE:-1024}
+LOSS=${LOSS:-hi-dist}
+MODEL_DATE=${MODEL_DATE:-20230501}
+
 TS=$(date "+%m.%d-%H.%M.%S")
-mkdir -p experiments/${RESULT_DIR}/${CNT}/${TS}
+MODEL_DIR=models/svm/${DATA}/${CNT}
+RUN_DIR=experiments/results/svm/${CNT}/${TS}
+RUN_NAME=${DATA_TAG}_svm_cnt${CNT}_${SEQ}_seed${SEED}_${LOSS}_transcend_test_${TEST_START}_${TEST_END}
+mkdir -p "${RUN_DIR}" "${MODEL_DIR}"
 
-nohup python -u base.py	                                \
-            --method 'svm'                                 \
-            --data ${DATA}                                  \
-            --benign_zero                                   \
-            --mdate 20230501                                \
-            --train_start ${TRAIN_START}                    \
-            --train_end ${TRAIN_END}                        \
-            --test_start ${TEST_START}                      \
-            --test_end ${TEST_END}                          \
-            --encoder enc                                   \
-            --classifier svm                                \
-            --cls-feat encoded                              \
-            --cls-retrain 1                                 \
-            --cold-start                                    \
-            --loss_func ${LOSS}                             \
-            --enc-hidden ${modeldim}                        \
-            --sampler ${S}                                  \
-            --bsize ${B}                                    \
-            --optimizer ${OPT}                              \
-            --scheduler ${SCH}                              \
-            --learning_rate ${LR}                           \
-            --lr_decay_rate ${DECAY}                        \
-            --lr_decay_epochs "10,500,10"                   \
-            --epochs ${E}                                   \
-            --encoder_retrain                               \
-            --al_optimizer ${AL_OPT}                        \
-            --display-interval 180                          \
-            --al                                            \
-            --count ${CNT}                                  \
-            --F1D ${D}                                     \
-            --transcend                                     \
-            --criteria 'cred+conf'                               \
-            --result experiments/${RESULT_DIR}/${CNT}/${TS}/gen_apigraph_hi-dist_svm_transcend_cred_cnt${CNT}_${SEQ}_warm_lr${LR}_${OPT}_${SCH}_${DECAY}_e${E}_${AL_OPT}_wlr${WLR}_we${WE}_test_${TEST_START}_${TEST_END}_cnt${CNT}.csv \
-            --log_path experiments/${RESULT_DIR}/${CNT}/${TS}/gen_apigraph_hi-dist_svm_transcend_cred_cnt${CNT}_${SEQ}_warm_lr${LR}_${OPT}_${SCH}_${DECAY}_e${E}_${AL_OPT}_wlr${WLR}_we${WE}_test_${TEST_START}_${TEST_END}_cnt${CNT}.log \
-            >> experiments/${RESULT_DIR}/${CNT}/${TS}/gen_apigraph_hi-dist_svm_transcend_cred_cnt${CNT}_${SEQ}_warm_lr${LR}_${OPT}_${SCH}_${DECAY}_e${E}_${AL_OPT}_wlr${WLR}_we${WE}_test_${TEST_START}_${TEST_END}_cnt${CNT}.log 2>&1 &
+nohup python -u base.py                                      \
+    --method svm                                             \
+    --data "${DATA}"                                       \
+    --benign_zero                                            \
+    --mdate "${MODEL_DATE}"                                \
+    --train_start "${TRAIN_START}"                         \
+    --train_end "${TRAIN_END}"                             \
+    --test_start "${TEST_START}"                           \
+    --test_end "${TEST_END}"                               \
+    --encoder enc                                            \
+    --classifier svm                                         \
+    --cls-feat encoded                                       \
+    --cls-retrain 1                                          \
+    --cold-start                                             \
+    --loss_func "${LOSS}"                                  \
+    --enc-hidden "${MODELDIM}"                             \
+    --sampler "${SAMPLER}"                                 \
+    --bsize "${BATCH_SIZE}"                                \
+    --optimizer "${OPT}"                                   \
+    --scheduler "${SCH}"                                   \
+    --learning_rate "${LR}"                                \
+    --lr_decay_rate "${DECAY}"                             \
+    --lr_decay_epochs "10,500,10"                           \
+    --epochs "${E}"                                        \
+    --encoder_retrain                                        \
+    --al_optimizer "${AL_OPT}"                             \
+    --warm_learning_rate "${WLR}"                          \
+    --al_epochs "${WE}"                                    \
+    --display-interval 180                                   \
+    --al                                                     \
+    --count "${CNT}"                                       \
+    --F1D "${D}"                                           \
+    --transcend                                              \
+    --criteria cred+conf                                     \
+    --seed "${SEED}"                                       \
+    --model-dir "${MODEL_DIR}"                             \
+    --result "${RUN_DIR}/${RUN_NAME}.csv"                  \
+    --log_path "${RUN_DIR}/${RUN_NAME}.log"                \
+    >> "${RUN_DIR}/${RUN_NAME}.log" 2>&1 &
 
 wait

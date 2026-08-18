@@ -20,6 +20,9 @@ from pdse import HCLPDSE
 from pdse import build_direct_exposure_loader
 from pdse import build_exposure_loader
 from hcl_enhancements import compute_hcl_training_loss
+from hcl_enhancements import damp_parameter_perturbation
+from hcl_enhancements import gaussian_weight_perturbation
+from hcl_enhancements import rwp_parameter_perturbation
 from hcl_enhancements import sam_parameter_perturbation
 from utils import AverageMeter
 from utils import save_model
@@ -243,6 +246,10 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             exposure_units = len(pdse_indices)
             exposure_rows = len(pdse_indices)
         else:
+            balanced_exposure = (
+                getattr(args, 'pdse_balanced_exposure', False)
+                and not getattr(args, 'pdse_unbalanced_exposure', False)
+            )
             pdse_loader, pdse_indices = build_exposure_loader(
                 X_train,
                 y_train,
@@ -251,6 +258,7 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
                 pdse_timestamps,
                 args.pdse_batch_size,
                 seed=args.seed,
+                balance_binary=balanced_exposure,
             )
             exposure_units = len(pdse_indices) // 3
             exposure_rows = len(pdse_indices)
@@ -267,10 +275,11 @@ def train_encoder(args, encoder, X_train, y_train, y_train_binary,
             )
         pdse_update_mode = pdse_controller.update_mode
         logging.info(
-            '%s+PDSE exposure: ablation=%s selected=%d units=%d rows=%d batches=%d '
-            'lambda=%g gamma=%g update=%s',
+            '%s+PDSE exposure: ablation=%s balanced=%s selected=%d units=%d '
+            'rows=%d batches=%d lambda=%g gamma=%g update=%s',
             pdse_method,
             pdse_ablation,
+            balanced_exposure if pdse_ablation != 'no-triplet' else False,
             pdse_exposure_count,
             exposure_units,
             exposure_rows,
@@ -398,7 +407,7 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
         if args.loss_func == 'triplet-mse':
             features, decoded = encoder(x_batch)
 
-            TripletMSE = TripletMSELoss().cuda()
+            TripletMSE = TripletMSELoss().to(device)
             loss, supcon_loss, mse_loss = TripletMSE(args.cae_lambda, \
                                 x_batch, decoded, features, labels=y_batch, \
                                 margin = args.margin, \
@@ -447,30 +456,75 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                     mse=mse_losses))
         
         elif args.loss_func == 'hi-dist-xent':
-            loss, supcon_loss, xent_loss = compute_hcl_training_loss(
-                args,
-                encoder,
-                x_batch,
-                y_batch,
-                y_bin_batch,
-                weight_batch,
-            )
-            if not torch.isfinite(loss):
-                raise FloatingPointError(
-                    f'Non-finite HCL loss for enhancement '
-                    f'{getattr(args, "hcl_enhancement", "none")} '
-                    f'at epoch {epoch}, batch {idx + 1}'
+            enhancement = getattr(args, 'hcl_enhancement', 'none')
+            optimizer.zero_grad()
+            if enhancement in ('gaussian_noise', 'damp'):
+                if enhancement == 'gaussian_noise':
+                    perturbation_context = gaussian_weight_perturbation(
+                        encoder, args.hcl_gaussian_noise_std
+                    )
+                else:
+                    perturbation_context = damp_parameter_perturbation(
+                        encoder, args.hcl_damp_std
+                    )
+                with perturbation_context:
+                    loss, supcon_loss, xent_loss = compute_hcl_training_loss(
+                        args,
+                        encoder,
+                        x_batch,
+                        y_batch,
+                        y_bin_batch,
+                        weight_batch,
+                    )
+                    if not torch.isfinite(loss):
+                        raise FloatingPointError(
+                            f'Non-finite HCL loss for enhancement '
+                            f'{enhancement} at epoch {epoch}, batch {idx + 1}'
+                        )
+                    loss.backward()
+            else:
+                loss, supcon_loss, xent_loss = compute_hcl_training_loss(
+                    args,
+                    encoder,
+                    x_batch,
+                    y_batch,
+                    y_bin_batch,
+                    weight_batch,
                 )
-            
+                if not torch.isfinite(loss):
+                    raise FloatingPointError(
+                        f'Non-finite HCL loss for enhancement {enhancement} '
+                        f'at epoch {epoch}, batch {idx + 1}'
+                    )
+
             # update metric
             losses.update(loss.item(), bsz)
             supcon_losses.update(supcon_loss.item(), bsz)
             xent_losses.update(xent_loss.item(), bsz)
 
             # SGD
-            optimizer.zero_grad()
-            loss.backward()
-            if getattr(args, 'hcl_enhancement', 'none') == 'sam':
+            if enhancement == 'rwp':
+                rwp_alpha = args.hcl_rwp_alpha
+                (rwp_alpha * loss).backward()
+                with rwp_parameter_perturbation(
+                        encoder, args.hcl_rwp_gamma):
+                    rwp_loss, _, _ = compute_hcl_training_loss(
+                        args,
+                        encoder,
+                        x_batch,
+                        y_batch,
+                        y_bin_batch,
+                        weight_batch,
+                    )
+                    if not torch.isfinite(rwp_loss):
+                        raise FloatingPointError(
+                            f'Non-finite RWP perturbed loss at epoch {epoch}, '
+                            f'batch {idx + 1}'
+                        )
+                    ((1.0 - rwp_alpha) * rwp_loss).backward()
+            elif enhancement not in ('gaussian_noise', 'damp'):
+                loss.backward()
+            if enhancement == 'sam':
                 with sam_parameter_perturbation(encoder, args.hcl_sam_rho):
                     optimizer.zero_grad()
                     sam_loss, _, _ = compute_hcl_training_loss(
@@ -501,7 +555,25 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
                 torch.nn.utils.clip_grad_norm_(
                     encoder.parameters(), pdse_controller.grad_clip
                 )
+            hcl_grad_clip = getattr(args, 'hcl_grad_clip', 0.0)
+            if hcl_grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    encoder.parameters(), hcl_grad_clip
+                )
+            # Catch overflow before an optimizer step can corrupt the model.
+            # This is particularly important for high-dimensional sparse
+            # feature sets such as AndroZoo.
+            for parameter in encoder.parameters():
+                if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
+                    raise FloatingPointError(
+                        f'Non-finite HCL gradient at epoch {epoch}, batch {idx + 1}'
+                    )
             optimizer.step()
+            for parameter in encoder.parameters():
+                if not torch.isfinite(parameter).all():
+                    raise FloatingPointError(
+                        f'Non-finite HCL parameter at epoch {epoch}, batch {idx + 1}'
+                    )
             
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -522,12 +594,17 @@ def train_encoder_one_epoch(args, encoder, train_loader, optimizer, epoch,
             features = encoder(x_batch)
             # y_train_binary_cat_tensor = torch.from_numpy(to_categorical(y_bin_batch)).float()
             # Our own version of the supervised contrastive learning loss
-            HiDistance = HiDistanceLoss().cuda()
+            HiDistance = HiDistanceLoss().to(device)
             loss = HiDistance(features, \
                                     y_bin_batch, labels = y_batch, \
                                     margin = args.margin, \
                                     weight = None,
                                     split = None)
+
+            losses.update(loss.item(), bsz)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
         else:
             raise Exception(f'The loss function {args.loss_func} for model ' \

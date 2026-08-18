@@ -76,7 +76,8 @@ def _nearest_timestamp_candidates(candidates, current_index, month_ordinals):
     return candidates[distances == distances.min()]
 
 
-def build_exposure_indices(y_family, y_binary, exposure_count, timestamps, seed=0):
+def build_exposure_indices(y_family, y_binary, exposure_count, timestamps, seed=0,
+                           balance_binary=False):
     """Build one time-local drift triplet for every newly labeled sample."""
     y_family = np.asarray(y_family)
     y_binary = np.asarray(y_binary)
@@ -92,6 +93,20 @@ def build_exposure_indices(y_family, y_binary, exposure_count, timestamps, seed=
     current_indices = np.arange(history_end, sample_count)
     rng = np.random.default_rng(seed)
     triplets = []
+
+    if balance_binary:
+        current_by_binary = [
+            current_indices[y_binary[current_indices] == label]
+            for label in np.unique(y_binary[current_indices])
+        ]
+        if len(current_by_binary) == 2 and all(
+                group.size > 0 for group in current_by_binary):
+            per_class = min(group.size for group in current_by_binary)
+            current_indices = np.concatenate([
+                rng.choice(group, size=per_class, replace=False)
+                for group in current_by_binary
+            ])
+            rng.shuffle(current_indices)
 
     for current_index in current_indices:
         same_candidates = history_indices[y_family[:history_end] == y_family[current_index]]
@@ -116,7 +131,7 @@ def build_exposure_indices(y_family, y_binary, exposure_count, timestamps, seed=
 
 
 def build_exposure_loader(X, y_family, y_binary, exposure_count, timestamps,
-                          batch_size, seed=0):
+                          batch_size, seed=0, balance_binary=False):
     """Create role-major drift-triplet batches centered on newly labeled samples."""
     indices = build_exposure_indices(
         y_family,
@@ -124,6 +139,7 @@ def build_exposure_loader(X, y_family, y_binary, exposure_count, timestamps,
         exposure_count,
         timestamps,
         seed=seed,
+        balance_binary=balance_binary,
     )
     triplet_indices = indices.reshape(-1, 3)
     triplet_batch_size = max(1, min(int(batch_size) // 3, triplet_indices.shape[0]))
