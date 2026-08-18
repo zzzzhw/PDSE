@@ -3,6 +3,7 @@
 #models/
 data/kronodroid_raw/
 data/mh1m/
+experiments/hcl_pdse_f1_plot/
 
 # Experiment outputs.
 *.csv
